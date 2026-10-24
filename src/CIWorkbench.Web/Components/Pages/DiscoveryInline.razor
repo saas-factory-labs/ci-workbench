@@ -1,0 +1,35 @@
+@implements IDisposable
+@inject AppSession Session
+
+<span class="disc" role="status" aria-live="polite" data-testid="discovery-status">
+    @switch (Session.Discovery)
+    {
+        case DiscoveryState.Running:
+            <span><strong>@Session.Repositories.Count</strong> repositories found · page @Session.PagesLoaded@(Session.EstimatedPages is { } p ? $" of ~{p}" : "")</span>
+            @if (Session.EstimatedPages is { } est) { <progress max="@est" value="@Session.PagesLoaded" aria-label="Discovery progress"></progress> }
+            else { <progress aria-label="Discovery in progress (total unknown)"></progress> }
+            <button class="ciw-btn sm" @onclick="Session.CancelDiscovery">Cancel</button>
+            break;
+        case DiscoveryState.Completed:
+            <span><strong>@Session.Repositories.Count</strong> repositories accessible</span>
+            <button class="ciw-btn sm" @onclick="Session.StartDiscoveryAsync">Rediscover</button>
+            break;
+        case DiscoveryState.Cancelled:
+            <span>Discovery cancelled with <strong>@Session.Repositories.Count</strong> found (list may be incomplete)</span>
+            <button class="ciw-btn sm" @onclick="Session.StartDiscoveryAsync">Restart</button>
+            break;
+        case DiscoveryState.Failed:
+            <span class="bad">Discovery failed: @Session.DiscoveryError</span>
+            <button class="ciw-btn sm" @onclick="Session.StartDiscoveryAsync">Retry</button>
+            break;
+        default:
+            <span class="ciw-muted">Discovery not started</span>
+            break;
+    }
+</span>
+
+@code {
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    protected override void OnInitialized() => Session.Changed += OnChanged;
+    public void Dispose() => Session.Changed -= OnChanged;
+}

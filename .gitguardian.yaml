@@ -1,0 +1,6 @@
+version: 2
+secret:
+  show_secrets: false
+  ignored_matches:
+    - name: Dummy Bearer value in the secret redaction unit test (SeriesTests.cs)
+      match: 4ddf7d40faa8c73cad0d32fc85e6efa628b47c81a025449f792ace2278cbe132

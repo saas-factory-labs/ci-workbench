@@ -1,0 +1,14 @@
+@implements IDisposable
+@inject UiPreferences Prefs
+
+<div class="ciw-segmented" role="group" aria-label="Row density">
+    <button type="button" class="@Cls(Density.Comfortable)" aria-pressed="@((Prefs.Density == Density.Comfortable) ? "true" : "false")" @onclick="() => Prefs.Density = Density.Comfortable">Comfortable</button>
+    <button type="button" class="@Cls(Density.Compact)" aria-pressed="@((Prefs.Density == Density.Compact) ? "true" : "false")" @onclick="() => Prefs.Density = Density.Compact">Compact</button>
+</div>
+
+@code {
+    private string Cls(Density d) => Prefs.Density == d ? "on" : "";
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    protected override void OnInitialized() => Prefs.Changed += OnChanged;
+    public void Dispose() => Prefs.Changed -= OnChanged;
+}

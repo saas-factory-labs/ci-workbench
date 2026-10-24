@@ -1,0 +1,21 @@
+@page "/"
+@inject AppSession Session
+@inject NavigationManager Nav
+
+<PageTitle>CIWorkbench</PageTitle>
+<h1 class="sr-only">CIWorkbench</h1>
+<div class="ciw-empty" role="status">Opening your workspace…</div>
+
+@code {
+    /// <summary>
+    /// The product is the repository workspace, so "/" goes straight to it: the selected or most recent repository,
+    /// the demo monorepo in demo mode, or the repository list when live mode has nothing selected yet.
+    /// </summary>
+    protected override void OnInitialized()
+    {
+        RepoRef? target = Session.Selected ?? (Session.Recent.Count > 0 ? Session.Recent[0] : null);
+        if (target is { } t) Nav.NavigateTo($"repo/{t.Owner}/{t.Name}", replace: true);
+        else if (Session.Mode == DataMode.Demo) Nav.NavigateTo($"repo/{CIWorkbench.Core.Demo.DemoCiProvider.Monorepo.Owner}/{CIWorkbench.Core.Demo.DemoCiProvider.Monorepo.Name}", replace: true);
+        else Nav.NavigateTo("repositories", replace: true);
+    }
+}

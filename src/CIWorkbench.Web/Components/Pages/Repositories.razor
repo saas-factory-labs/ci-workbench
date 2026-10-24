@@ -1,0 +1,54 @@
+@page "/repositories"
+@implements IDisposable
+@inject AppSession Session
+@inject TimeProvider Time
+@inject NavigationManager Nav
+
+<PageTitle>Repositories · CIWorkbench</PageTitle>
+<h1 class="page-title">Repositories</h1>
+
+<div class="statusline" role="status"><DiscoveryInline /></div>
+
+<div class="repo-filter">
+    <div class="ciw-searchbox"><Icon Name="search" Size="17" />
+        <input type="search" placeholder="Filter repositories by name or description…" aria-label="Filter repositories" @bind="_filter" @bind:event="oninput" /></div>
+    <span class="ciw-muted">@Total of @Session.Repositories.Count</span>
+</div>
+
+<div class="ciw-tablewrap repo-table">
+<table class="ciw-table" data-testid="repo-list">
+    <thead><tr><th>Repository</th><th>Visibility</th><th>Description</th><th>Last push</th><th class="c-go"><span class="sr-only">Open</span></th></tr></thead>
+    <tbody>
+    @foreach (var r in Filtered)
+    {
+        <tr class="ciw-row" tabindex="0" @onclick="() => Open(r)" @onkeydown="e => OnKey(e, r)" data-repo="@r.Ref.FullName">
+            <td><span class="repo-name"><Icon Name="repo" Size="18" Class="ciw-accent" /> <strong>@r.Ref.Name</strong> <span class="ciw-muted">@r.Ref.Owner</span></span></td>
+            <td><span class="ciw-chip">@(r.IsPrivate ? "private" : "public")</span></td>
+            <td class="ciw-muted desc">@r.Description</td>
+            <td class="ciw-muted">@Fmt.Ago(r.PushedAt, Time.GetUtcNow())</td>
+            <td class="c-go"><Icon Name="chevron-right" Size="16" /></td>
+        </tr>
+    }
+    @if (Total == 0)
+    {
+        <tr><td colspan="5" class="ciw-empty">@(Session.Discovery == DiscoveryState.Running ? "Waiting for the first page…" : "No repositories match.")</td></tr>
+    }
+    </tbody>
+</table>
+</div>
+@if (Total > Shown) { <p class="ciw-muted">Showing @Shown of @Total matches. Refine the filter to narrow the list.</p> }
+
+@code {
+    private const int Max = 200;
+    private string _filter = "";
+    private IEnumerable<RepositoryInfo> Matches => Session.Repositories.Where(r => string.IsNullOrWhiteSpace(_filter)
+        || r.Ref.FullName.Contains(_filter.Trim(), StringComparison.OrdinalIgnoreCase) || (r.Description?.Contains(_filter.Trim(), StringComparison.OrdinalIgnoreCase) ?? false));
+    private IEnumerable<RepositoryInfo> Filtered => Matches.Take(Max);
+    private int Total => Matches.Count();
+    private int Shown => Math.Min(Total, Max);
+    private void Open(RepositoryInfo r) => Nav.NavigateTo($"repo/{r.Ref.Owner}/{r.Ref.Name}");
+    private void OnKey(KeyboardEventArgs e, RepositoryInfo r) { if (e.Key is "Enter" or " ") Open(r); }
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    protected override void OnInitialized() => Session.Changed += OnChanged;
+    public void Dispose() => Session.Changed -= OnChanged;
+}

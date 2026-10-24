@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <ProjectReference Include="..\..\src\CIWorkbench.Core\CIWorkbench.Core.csproj" />
+    <PackageReference Include="JsonSchema.Net" />
+    <!-- The tests validate the real published files, not copies. -->
+    <Content Include="..\..\schemas\ciworkbench.schema.json" Link="contract\ciworkbench.schema.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\.ciworkbench.yml" Link="contract\repo.ciworkbench.yml" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\README.md" Link="contract\README.md" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\docs\configuration\workflow-grouping.md" Link="contract\workflow-grouping.md" CopyToOutputDirectory="PreserveNewest" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

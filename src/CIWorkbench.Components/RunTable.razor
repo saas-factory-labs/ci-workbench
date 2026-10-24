@@ -1,0 +1,95 @@
+@implements IDisposable
+@inject UiPreferences Prefs
+
+<div class="ciw-tablewrap">
+<table class="ciw-table" aria-label="Workflow runs">
+    <thead>
+        <tr>
+            <th class="c-status">Status</th><th class="c-id">Run ID</th><th class="c-trigger">Trigger</th><th class="c-branch">Branch</th>
+            <th class="c-started">Started (UTC) <span aria-hidden="true">↓</span></th><th class="c-dur">Duration</th><th class="c-actor">Actor</th>
+            @if (HealthFor is not null) { <th class="c-health">Health summary</th> }
+            <th class="c-go"><span class="sr-only">Inspect</span></th>
+        </tr>
+    </thead>
+    <tbody>
+    @foreach (var r in Page)
+    {
+        var health = HealthFor?.Invoke(r);
+        <tr class="ciw-row @(r.Id == SelectedRunId ? "selected" : "")" tabindex="0" @onclick="() => Select(r)" @onkeydown="e => OnKey(e, r)" data-run-id="@r.Id" aria-label="Run @r.Id, @Fmt.StateLabel(r.State)">
+            <td class="c-status"><StatusIcon State="r.State"/> <span class="ciw-state ciw-@Fmt.StateClass(r.State)">@Fmt.StateLabel(r.State)</span></td>
+            <td class="c-id ciw-mono">@r.Id</td>
+            <td class="c-trigger"><span class="ciw-chip">@r.Event</span></td>
+            <td class="c-branch"><span class="ciw-chip branch">@r.Branch</span></td>
+            <td class="c-started" title="@Fmt.When(r.SortTime)">@Fmt.WhenShort(r.SortTime)</td>
+            <td class="c-dur">@Fmt.Duration(r.Duration)</td>
+            <td class="c-actor"><Icon Name="@(r.Actor == "github-actions" ? "github" : "user")" Size="15" /> <span>@r.Actor</span></td>
+            @if (HealthFor is not null)
+            {
+                <td class="c-health">@if (health is { } h) { <span class="ciw-health-dot @h.Cls"></span><span>@h.Text</span> } else { <span class="ciw-muted">—</span> }</td>
+            }
+            <td class="c-go" aria-hidden="true"><Icon Name="chevron-right" Size="15" /></td>
+        </tr>
+    }
+    @if (Runs.Count == 0)
+    {
+        <tr><td colspan="9" class="ciw-empty">No runs match the current filters.</td></tr>
+    }
+    </tbody>
+</table>
+</div>
+@if (Runs.Count > 5)
+{
+    <div class="ciw-pager">
+        <span class="ciw-muted">@(Start + 1)–@Math.Min(Start + Size, Runs.Count) of @Runs.Count runs</span>
+        <span class="ciw-pager-ctl">
+            <button type="button" class="ciw-pg" disabled="@(PageIndex == 0)" @onclick="() => PageIndex--" aria-label="Previous page"><Icon Name="chevron-left" Size="14" /></button>
+            @foreach (var p in Pages)
+            {
+                if (p < 0) { <span class="ciw-muted">…</span> }
+                else { <button type="button" class="ciw-pg @(p == PageIndex ? "on" : "")" @onclick="() => PageIndex = p" aria-label="Page @(p + 1)" aria-current="@(p == PageIndex ? "page" : null)">@(p + 1)</button> }
+            }
+            <button type="button" class="ciw-pg" disabled="@(PageIndex >= PageCount - 1)" @onclick="() => PageIndex++" aria-label="Next page"><Icon Name="chevron-right" Size="14" /></button>
+        </span>
+        <label class="ciw-muted">Rows per page
+            <select @onchange="OnSize" aria-label="Rows per page">
+                @foreach (var n in new[] { 5, 10, 25, 50 }) { <option value="@n" selected="@(n == Size)">@n</option> }
+            </select>
+        </label>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<WorkflowRunInfo> Runs { get; set; } = [];
+    [Parameter] public long? SelectedRunId { get; set; }
+    [Parameter] public EventCallback<WorkflowRunInfo> OnRunSelected { get; set; }
+    /// <summary>Optional per-run health text, supplied only from data that was actually inspected.</summary>
+    [Parameter] public Func<WorkflowRunInfo, (string Text, string Cls)?>? HealthFor { get; set; }
+
+    private int? _userSize;
+    private int PageIndex { get; set; }
+    private int Size => _userSize ?? (Prefs.Density == Density.Compact ? 25 : 10);
+    private int PageCount => Math.Max(1, (int)Math.Ceiling(Runs.Count / (double)Size));
+    private int Start => PageIndex * Size;
+    private IEnumerable<WorkflowRunInfo> Page => Runs.Skip(Start).Take(Size);
+
+    private IEnumerable<int> Pages
+    {
+        get
+        {
+            if (PageCount <= 7) return Enumerable.Range(0, PageCount);
+            var set = new SortedSet<int> { 0, PageCount - 1, PageIndex - 1, PageIndex, PageIndex + 1 };
+            set.RemoveWhere(p => p < 0 || p >= PageCount);
+            var result = new List<int>(); var prev = -1;
+            foreach (var p in set) { if (prev >= 0 && p - prev > 1) result.Add(-1); result.Add(p); prev = p; }
+            return result;
+        }
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    protected override void OnInitialized() => Prefs.Changed += OnChanged;
+    protected override void OnParametersSet() { if (PageIndex >= PageCount) PageIndex = PageCount - 1; }
+    public void Dispose() => Prefs.Changed -= OnChanged;
+    private Task Select(WorkflowRunInfo r) => OnRunSelected.InvokeAsync(r);
+    private Task OnKey(KeyboardEventArgs e, WorkflowRunInfo r) => e.Key is "Enter" or " " ? Select(r) : Task.CompletedTask;
+    private void OnSize(ChangeEventArgs e) { _userSize = int.Parse(e.Value?.ToString() ?? "10"); PageIndex = 0; }
+}

@@ -1,0 +1,20 @@
+# Two hooks: secret scanning (GitGuardian ggshield) and GitHub Actions SHA pinning.
+# Install once per clone:  pre-commit install      (see CONTRIBUTING.md)
+repos:
+  - repo: local
+    hooks:
+      - id: validate-workflow-sha-pins
+        name: Validate GitHub Actions use pinned SHAs
+        # Python so contributors on any OS can run it (pre-commit itself requires Python).
+        language: python
+        entry: python .github/scripts/validate_workflow_sha_pins.py
+        files: \.github/workflows/.*\.(yml|yaml)$
+        pass_filenames: false
+        stages: [pre-commit, pre-push]
+
+  - repo: https://github.com/gitguardian/ggshield
+    rev: v1.47.0
+    hooks:
+      - id: ggshield
+        language_version: python3
+        stages: [pre-commit]

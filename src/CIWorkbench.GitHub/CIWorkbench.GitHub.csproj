@@ -1,0 +1,8 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <InternalsVisibleTo Include="CIWorkbench.GitHub.Tests" />
+    <ProjectReference Include="..\CIWorkbench.Core\CIWorkbench.Core.csproj" />
+  </ItemGroup>
+</Project>
+

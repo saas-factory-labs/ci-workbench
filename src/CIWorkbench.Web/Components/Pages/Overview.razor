@@ -1,0 +1,43 @@
+@page "/overview"
+@implements IDisposable
+@inject AppSession Session
+@inject TimeProvider Time
+
+<PageTitle>Overview · CIWorkbench</PageTitle>
+<h1 class="page-title">Overview</h1>
+
+<div class="statusline" role="status">
+    <span class="pill @(Session.Mode == DataMode.Demo ? "demo" : "ok")">@(Session.Mode == DataMode.Demo ? "Demo data" : "Live GitHub")</span>
+    <DiscoveryInline />
+    <a href="settings" class="ciw-muted">Connection and permissions are in Settings →</a>
+</div>
+
+<h2 class="section-title">Recently active repositories</h2>
+@if (Session.Repositories.Count == 0)
+{
+    <div class="ciw-empty">@(Session.Discovery == DiscoveryState.Running ? "Discovering repositories…" : "No repositories found.")</div>
+}
+else
+{
+    <div class="repo-cards" data-testid="repo-cards">
+        @foreach (var r in Session.Repositories.Take(8))
+        {
+            <a class="repo-card" href="repo/@r.Ref.Owner/@r.Ref.Name">
+                <span class="repo-card-icon"><Icon Name="repo" Size="22" /></span>
+                <span class="repo-card-body">
+                    <strong>@r.Ref.Name</strong>
+                    <small class="ciw-muted">@r.Ref.Owner · pushed @Fmt.Ago(r.PushedAt, Time.GetUtcNow())</small>
+                    <small class="ciw-muted clamp">@r.Description</small>
+                </span>
+                <Icon Name="chevron-right" Size="18" Class="ciw-muted" />
+            </a>
+        }
+    </div>
+    <p><a href="repositories">Browse all @Session.Repositories.Count repositories →</a></p>
+}
+
+@code {
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    protected override void OnInitialized() => Session.Changed += OnChanged;
+    public void Dispose() => Session.Changed -= OnChanged;
+}

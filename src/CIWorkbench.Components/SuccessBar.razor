@@ -1,0 +1,17 @@
+<span class="ciw-successbar" title="@Tooltip">
+    <span class="ciw-bar" role="img" aria-label="@Label">
+        @if (Rate is { } r)
+        {
+            <span class="ciw-bar-ok" style="width:@(Math.Round(r * 100))%"></span>
+            <span class="ciw-bar-fail" style="width:@(Math.Round((1 - r) * 100))%"></span>
+        }
+    </span>
+    <span class="ciw-muted">@Fmt.Percent(Rate) success</span>
+</span>
+@code {
+    [Parameter] public double? Rate { get; set; }
+    /// <summary>What the percentage was measured over (shown in the tooltip).</summary>
+    [Parameter] public string? Scope { get; set; }
+    private string Tooltip => Scope is null ? Label : Label + " — " + Scope;
+    private string Label => Rate is null ? "No completed runs yet" : $"{Fmt.Percent(Rate)} of completed runs succeeded";
+}

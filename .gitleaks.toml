@@ -1,0 +1,5 @@
+# Gitleaks configuration: the default ruleset, unchanged. Add an [allowlist] entry (with a reason) only for a deliberate dummy value.
+title = "CIWorkbench gitleaks config"
+
+[extend]
+useDefault = true

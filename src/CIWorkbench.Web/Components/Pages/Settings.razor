@@ -1,0 +1,71 @@
+@page "/settings"
+@implements IDisposable
+@inject AppSession Session
+@inject UiPreferences Prefs
+@inject IJSRuntime JS
+@inject TimeProvider Time
+
+<PageTitle>Settings · CIWorkbench</PageTitle>
+<h1 class="page-title">Settings</h1>
+
+<div class="cards">
+    <section class="card">
+        <h2>Data source</h2>
+        <div class="ciw-segmented" role="group" aria-label="Data source">
+            <button type="button" class="@(Session.Mode == DataMode.Demo ? "on" : "")" aria-pressed="@(Session.Mode == DataMode.Demo ? "true" : "false")" @onclick="() => Session.SetMode(DataMode.Demo)">Demo data</button>
+            <button type="button" class="@(Session.Mode == DataMode.Live ? "on" : "")" aria-pressed="@(Session.Mode == DataMode.Live ? "true" : "false")" disabled="@(!Session.LiveAvailable)" @onclick="() => Session.SetMode(DataMode.Live)">Live GitHub</button>
+        </div>
+        @if (!Session.LiveAvailable)
+        {
+            <p class="ciw-muted">No token is configured on the server, so live mode is unavailable. The token is never entered or stored in the browser. Supply a read-only fine-grained token server-side:</p>
+            <pre class="code">dotnet user-secrets set "GitHub:Token" "&lt;fine-grained PAT&gt;" --project src/CIWorkbench.Web</pre>
+            <p class="ciw-muted">Then restart (optionally with <code>CIWORKBENCH_MODE=live</code>) or switch here. See docs/development/github-permissions.md.</p>
+        }
+        else { <p class="ciw-muted">A server-side token is configured (value never shown).</p> }
+    </section>
+
+    <section class="card">
+        <h2>Permissions check</h2>
+        <p class="ciw-muted">Each capability is verified with the real API operation it needs, not just token validity.</p>
+        <ChecklistView Report="Session.Connection" Busy="Session.CheckingConnection" />
+        <button class="ciw-btn" @onclick="Session.CheckConnectionAsync" disabled="@Session.CheckingConnection">Verify now</button>
+        <p class="ciw-muted">Needs (read-only): <strong>Metadata</strong>, <strong>Actions: Read</strong>, <strong>Contents: Read</strong>. Never grant Actions: Write.</p>
+    </section>
+
+    <section class="card">
+        <h2>API budget</h2>
+        @{ var rl = Session.Tracker.Last ?? Session.RateLimit; }
+        @if (Session.Mode == DataMode.Demo) { <p class="ciw-muted">Not applicable in demo mode.</p> }
+        else if (rl is null) { <p class="ciw-muted">Appears after the first GitHub request.</p> }
+        else
+        {
+            <p><strong>@rl.Remaining</strong> of @rl.Limit requests left · resets @rl.ResetsAt.UtcDateTime.ToString("HH:mm:ss") UTC</p>
+            <progress max="@rl.Limit" value="@rl.Remaining" aria-label="Remaining API requests"></progress>
+        }
+        @if (Session.Tracker.IsThrottled(Time.GetUtcNow())) { <p class="ciw-notice warn">Requests are being rate-limited; waiting until @Session.Tracker.ThrottledUntil?.ToString("HH:mm:ss") UTC.</p> }
+    </section>
+
+    <section class="card">
+        <h2>Display</h2>
+        <p>Row density</p>
+        <DensityToggle />
+        <p class="ciw-muted">Density and expanded groups are stored in this browser only. No credentials are stored there.</p>
+        <button class="ciw-btn sm" @onclick="ClearPrefs">Reset saved preferences</button>
+    </section>
+</div>
+
+@code {
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    protected override void OnInitialized() { Session.Changed += OnChanged; Session.Tracker.Changed += OnChanged; }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && Session.Connection is null && !Session.CheckingConnection && Session.Mode == DataMode.Live) await Session.CheckConnectionAsync();
+    }
+    public void Dispose() { Session.Changed -= OnChanged; Session.Tracker.Changed -= OnChanged; }
+
+    private async Task ClearPrefs()
+    {
+        try { foreach (var k in new[] { "density", "inspector", "expanded", "expanded.v2" }) await JS.InvokeVoidAsync("ciw.setPref", k, ""); } catch (JSException) { }
+        Prefs.Density = Density.Comfortable;
+    }
+}
