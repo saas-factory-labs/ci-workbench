@@ -1,0 +1,40 @@
+name: "Security: Secret Scanning (GitGuardian)"
+
+# Runs on push to main, version tags and manual dispatch, and also on pull requests: this repository is public,
+# so Actions minutes are free and secrets are caught before merge.
+on:
+  push:
+    branches: ["main"]
+    tags: ["v*.*.*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scanning:
+    name: GitGuardian scan
+    # Pull requests from forks cannot read repository secrets; GitHub push protection and the maintainers' scan on main cover those.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          fetch-depth: 0 # fetch all history so multiple commits can be scanned
+      - name: Require GITGUARDIAN_API_KEY
+        env:
+          GITGUARDIAN_API_KEY: ${{ secrets.GITGUARDIAN_API_KEY }}
+        run: |
+          if [ -z "$GITGUARDIAN_API_KEY" ]; then
+            echo "::error title=Secret scanning is not configured::Add the repository secret GITGUARDIAN_API_KEY (Settings > Secrets and variables > Actions). A scan that cannot run must not pass silently."
+            exit 1
+          fi
+      - name: GitGuardian scan
+        uses: GitGuardian/ggshield-action@247ad4911092eee12989d379779c115632de6f84  # v1.47.0
+        env:
+          GITHUB_PUSH_BEFORE_SHA: ${{ github.event.before }}
+          GITHUB_PUSH_BASE_SHA: ${{ github.event.base }}
+          GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GITGUARDIAN_API_KEY: ${{ secrets.GITGUARDIAN_API_KEY }}

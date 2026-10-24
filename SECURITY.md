@@ -1,4 +1,4 @@
-﻿# Security policy
+# Security policy
 
 ## Reporting a vulnerability
 
@@ -12,6 +12,10 @@ Please report privately via GitHub **Security advisories** on this repository ("
 - The tool is read-only. Use fine-grained tokens with read-only `Metadata`, `Actions` and `Contents`.
 - "Copy context for coding agent" redacts common token/secret patterns and bounds output, but redaction is best-effort: review before pasting elsewhere. Nothing is sent to any external service.
 - Browser storage holds only non-sensitive UI preferences (density, inspector state, expanded groups).
+
+## Secret scanning
+
+The repository is protected by a GitGuardian `ggshield` pre-commit hook, a GitGuardian CI workflow and GitHub secret scanning with push protection (see CONTRIBUTING.md). All GitHub Actions are pinned to commit SHAs.
 
 ## Not yet implemented
 

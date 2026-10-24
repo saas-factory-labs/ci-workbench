@@ -15,6 +15,20 @@ Thanks for helping! You need the .NET 10 SDK and nothing else. No private feeds 
 - With the Aspire Dashboard (optional): `dotnet run --project src/CIWorkbench.AppHost`. Aspire must stay optional: the app has to keep starting and working in demo mode without it, and without Docker or any database.
 - Optional GitHub token for the AppHost: `dotnet user-secrets set "Parameters:github-token" "<read-only PAT>" --project src/CIWorkbench.AppHost`. Never put tokens in `appsettings*.json` or launch profiles.
 
+## Secret scanning (three layers)
+
+1. **Local pre-commit hook** (`.pre-commit-config.yaml`): GitGuardian `ggshield` scans staged changes, and a validator requires every GitHub Action to be pinned to a 40-character commit SHA. Set it up once per clone:
+   ```powershell
+   pip install pre-commit ggshield
+   ggshield auth login          # free GitGuardian account; stores your key outside the repo
+   pre-commit install
+   ```
+   Run all hooks manually with `pre-commit run --all-files`. A local hook can be skipped with `--no-verify`, so it is a convenience, not the enforcement.
+2. **CI** (`.github/workflows/git-guardian.yml`): runs GitGuardian on pushes to `main`, version tags, pull requests from this repository, and manual dispatch. It needs the repository secret `GITGUARDIAN_API_KEY` and fails loudly when it is missing, so a scan that cannot run never passes silently.
+3. **GitHub secret scanning with push protection** is enabled on the repository and rejects pushes that contain recognised provider tokens.
+
+Test fixtures must use obviously fake values (for example `ghp_..._NOT_REAL_...`). If a scanner flags a deliberate dummy, add it to `.gitguardian.yaml` with a reason rather than weakening the hook. Pin new Actions with `uses: owner/repo@<40-hex>  # vX.Y.Z`.
+
 ## Ground rules
 
 - **Keep Core host-independent.** `CIWorkbench.Core` has no HTTP or UI dependencies. `CIWorkbench.Components` has no `@page` routes, no layout, no auth checks and no navigation: hosts pass callbacks and register services.
