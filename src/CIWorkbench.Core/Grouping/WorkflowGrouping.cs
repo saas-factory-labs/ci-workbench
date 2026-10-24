@@ -1,7 +1,5 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using CIWorkbench.Core.Models;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
 
 namespace CIWorkbench.Core.Grouping;
 
@@ -24,43 +22,6 @@ public sealed class WorkflowGroup
 public sealed record GroupingResult(IReadOnlyList<WorkflowGroup> Groups, IReadOnlyList<string> Warnings)
 {
     public IEnumerable<AssignedWorkflow> AllWorkflows => Groups.SelectMany(g => g.AllWorkflows);
-}
-
-public sealed class GroupConfigEntry
-{
-    public string Name { get; set; } = "";
-    public string? Description { get; set; }
-    public List<string> Workflows { get; set; } = [];
-}
-
-public sealed class GroupConfig
-{
-    public List<GroupConfigEntry> Groups { get; set; } = [];
-}
-
-public static class GroupConfigParser
-{
-    private static readonly IDeserializer Yaml = new DeserializerBuilder()
-        .WithNamingConvention(CamelCaseNamingConvention.Instance)
-        .IgnoreUnmatchedProperties()
-        .Build();
-
-    /// <summary>Never throws: malformed config yields an empty config plus a warning.</summary>
-    public static (GroupConfig Config, string? Warning) Parse(string? yaml)
-    {
-        if (string.IsNullOrWhiteSpace(yaml)) return (new GroupConfig(), null);
-        try
-        {
-            var cfg = Yaml.Deserialize<GroupConfig?>(yaml) ?? new GroupConfig();
-            cfg.Groups = (cfg.Groups ?? []).Where(g => !string.IsNullOrWhiteSpace(g.Name)).ToList();
-            foreach (var g in cfg.Groups) g.Workflows ??= [];
-            return (cfg, null);
-        }
-        catch (Exception ex)
-        {
-            return (new GroupConfig(), $".ciworkbench.yml could not be parsed and was ignored: {ex.Message.Split('\n')[0].Trim()}");
-        }
-    }
 }
 
 public static partial class WorkflowGroupResolver
@@ -120,7 +81,7 @@ public static partial class WorkflowGroupResolver
             if (p.Length > 0 && !assignments.Any(a => a.Path.Equals(p, StringComparison.OrdinalIgnoreCase)))
                 warnings.Add($"Group \"{p}\" in .ciworkbench.yml matched no workflows.");
         }
-
+        AddConfigDiagnostics(workflows, config, warnings);
         var roots = new List<WorkflowGroup>();
         var index = new Dictionary<string, WorkflowGroup>(StringComparer.OrdinalIgnoreCase);
 
@@ -151,6 +112,40 @@ public static partial class WorkflowGroupResolver
         return new GroupingResult(sorted, warnings);
     }
 
+    private const int MaxDiagnosticsPerKind = 8;
+
+    /// <summary>
+    /// Checks that need the repository's real workflow list: a path/pattern that matches nothing (usually a typo or a renamed file)
+    /// and a workflow matched by several groups (the first group in the file wins). Nothing here changes where a workflow goes.
+    /// </summary>
+    private static void AddConfigDiagnostics(IReadOnlyList<WorkflowInfo> workflows, GroupConfig? config, List<string> warnings)
+    {
+        var entries = config?.Groups ?? [];
+        if (entries.Count == 0 || workflows.Count == 0) return;
+
+        var unmatched = 0;
+        foreach (var g in entries)
+            for (var i = 0; i < g.Workflows.Count; i++)
+            {
+                var pattern = g.Workflows[i];
+                if (workflows.Any(w => PathMatches(pattern, w.Path))) continue;
+                if (++unmatched > MaxDiagnosticsPerKind) continue;
+                warnings.Add(ConfigDiagnostic.Format(g.LineOfPattern(i),
+                    $"{(pattern.Contains('*') ? "pattern" : "workflow path")} '{pattern}' in group '{NormalizePath(g.Name)}' matches no workflow in this repository (check spelling; matching is case-insensitive on the full path)"));
+            }
+        if (unmatched > MaxDiagnosticsPerKind) warnings.Add(ConfigDiagnostic.Format(null, $"{unmatched - MaxDiagnosticsPerKind} more workflow paths or patterns match no workflow"));
+
+        var overlaps = 0;
+        foreach (var w in workflows.OrderBy(w => w.Path, StringComparer.OrdinalIgnoreCase))
+        {
+            var groups = entries.Where(g => g.Workflows.Any(p => PathMatches(p, w.Path))).Select(g => NormalizePath(g.Name))
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (groups.Count < 2) continue;
+            if (++overlaps > MaxDiagnosticsPerKind) continue;
+            warnings.Add(ConfigDiagnostic.Format(null, $"workflow '{w.Path}' matches several groups ({string.Join(", ", groups.Select(x => $"'{x}'"))}); it is placed in '{groups[0]}' (the first group in the file wins)"));
+        }
+        if (overlaps > MaxDiagnosticsPerKind) warnings.Add(ConfigDiagnostic.Format(null, $"{overlaps - MaxDiagnosticsPerKind} more workflows match several groups"));
+    }
     private static string NormalizePath(string name) =>
         string.Join('/', name.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 

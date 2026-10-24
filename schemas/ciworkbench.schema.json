@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/saas-factory-labs/ci-workbench/main/schemas/ciworkbench.schema.json",
+  "title": "CIWorkbench configuration (.ciworkbench.yml)",
+  "description": "Assigns GitHub Actions workflows to collapsible groups in CIWorkbench. Workflows are matched by their file path (never by display name). Precedence: this file, then a '# ci-workbench-group: <name>' comment inside the workflow file, then the 'Ungrouped' group. Semantic checks that need the repository's actual workflows (unmatched paths, a workflow matched by several groups, duplicate group names) cannot be expressed in JSON Schema; CIWorkbench reports them as warnings at run time.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "description": "Configuration format version. Optional; a missing version means 1. CIWorkbench ignores files that declare a version it does not support (and says so) instead of guessing.",
+      "type": "integer",
+      "enum": [1],
+      "default": 1
+    },
+    "groups": {
+      "description": "Groups in display order. A group name may contain '/' to nest groups, e.g. 'Security/Scanning'. The first group whose 'workflows' entry matches a workflow wins.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/group" }
+    }
+  },
+  "$defs": {
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "description": "Display name. Use '/' to nest (e.g. 'Build & Test/Unit'). Must not start or end with '/' or whitespace and must not contain '//'.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^(?!.*//)[^/\\s](?:.*[^/\\s])?$"
+        },
+        "description": {
+          "description": "Optional one-line description shown next to the group.",
+          "type": "string",
+          "maxLength": 500
+        },
+        "workflows": {
+          "description": "Workflow file paths assigned to this group, e.g. '.github/workflows/ci.yml'. Matching is case-insensitive on the full path. '*' matches any characters inside one path segment (never '/'), e.g. '.github/workflows/deploy-*.yml'. '**', '?', character classes and whitespace are not supported. A group with no workflows is allowed (for example to give a description to a group filled by workflow comments).",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 260,
+            "pattern": "^(?!.*\\*\\*)[^\\s?\\[\\]{}]+$"
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "version": 1,
+      "groups": [
+        {
+          "name": "Build & Test",
+          "description": "Compile and test",
+          "workflows": [".github/workflows/ci.yml", ".github/workflows/*-tests.yml"]
+        },
+        {
+          "name": "Security/Scanning",
+          "workflows": [".github/workflows/codeql.yml"]
+        }
+      ]
+    }
+  ]
+}

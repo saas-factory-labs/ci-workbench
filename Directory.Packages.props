@@ -15,6 +15,8 @@
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
     <PackageVersion Include="NSubstitute" Version="6.2.0" />
+    <!-- Test-only. Pinned to 8.x (MIT): 9.x changed its licence terms. -->
+    <PackageVersion Include="JsonSchema.Net" Version="8.0.5" />
     <PackageVersion Include="bunit" Version="2.12.5" />
   </ItemGroup>
 </Project>

@@ -81,18 +81,20 @@ dotnet test tests/CIWorkbench.Core.Tests; dotnet test tests/CIWorkbench.GitHub.T
 
 ## Configuring groups
 
-`.ciworkbench.yml` at the repository root (default branch):
+Add an optional `.ciworkbench.yml` to the root of the repository's default branch. The first line is a [YAML Language Server](https://github.com/redhat-developer/yaml-language-server) directive that points your editor at the published schema, so you get validation and autocompletion without copying any file:
 
 ```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/saas-factory-labs/ci-workbench/main/schemas/ciworkbench.schema.json
+version: 1
 groups:
   - name: Build & Test
-    workflows: [".github/workflows/ci-*.yml", ".github/workflows/lint.yml"]
+    description: Compile and test
+    workflows: [".github/workflows/ci.yml", ".github/workflows/*-tests.yml"]
   - name: Security/Scanning        # "/" nests groups
-    description: CodeQL and image scans
     workflows: [".github/workflows/codeql.yml"]
 ```
 
-Precedence: **central config → `# ci-workbench-group:` comment → "Ungrouped"**. Workflows are matched by path (never display name). Malformed or missing config never hides workflows; a warning is shown instead.
+Precedence: **central config → `# ci-workbench-group:` comment → "Ungrouped"**. Workflows are matched by file path (never display name). A bad configuration never hides a workflow: problems are reported with line numbers (unknown fields, wrong types, paths that match nothing, workflows matched by several groups) and affected groups fall back to comments or "Ungrouped". `version` is optional (omitted means `1`). The schema URL works once `schemas/ciworkbench.schema.json` is on `main`. Full contract, messages and versioning policy: [docs/configuration/workflow-grouping.md](docs/configuration/workflow-grouping.md).
 
 ## Status
 

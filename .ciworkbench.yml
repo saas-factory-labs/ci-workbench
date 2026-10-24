@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/saas-factory-labs/ci-workbench/main/schemas/ciworkbench.schema.json
+# CIWorkbench groups for this repository's own workflows (see docs/configuration/workflow-grouping.md).
+version: 1
+groups:
+  - name: Build & Test
+    description: Build and test the solution
+    workflows:
+      - .github/workflows/ci.yml
+  - name: Security
+    description: Secret scanning
+    workflows:
+      - .github/workflows/git-guardian.yml
+      - .github/workflows/gitleaks.yml

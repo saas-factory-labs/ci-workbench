@@ -44,7 +44,7 @@
             <div class="ciw-stat"><Icon Name="chart" Size="22" Class="ciw-accent" /><div><strong>@_workflows.Count</strong><span>Total workflows</span></div></div>
         </div>
 
-        @foreach (var w in _warnings)
+        @foreach (var w in AllWarnings)
         {
             <div class="ciw-notice warn" role="status">⚠ @w</div>
         }
@@ -184,6 +184,11 @@
     private Dictionary<string, string?> _commentGroups = [];
     private GroupingResult _grouping = new([], []);
     private List<string> _warnings = [];
+    private List<string> _configMessages = [];          // diagnostics of .ciworkbench.yml itself (with line numbers)
+
+    /// <summary>Config problems first, then grouping checks against the real workflow list (only once comment groups finished resolving), then other notices.</summary>
+    private IEnumerable<string> AllWarnings =>
+        _configMessages.Concat(_resolvingGroups ? [] : _grouping.Warnings).Concat(_warnings).Distinct();
     private RunSummary _summary = new(0, 0, 0, 0);
     private TimeSpan? _avgDuration;
     private string? _error;
@@ -236,7 +241,7 @@
         _cts.Cancel(); _cts.Dispose(); _cts = new CancellationTokenSource();
         var ct = _cts.Token;
         _workflows = null; _error = null; _runs = []; _series.Clear(); _analysisKey.Clear(); _history.Clear(); _historyTruncated.Clear(); _jobs.Clear();
-        _warnings = []; _bannerDismissed = false; _commentGroups = []; _config = new(); _grouping = new([], []); _bestOpened = false;
+        _warnings = []; _configMessages = []; _bannerDismissed = false; _commentGroups = []; _config = new(); _grouping = new([], []); _bestOpened = false;
         _loading = true; _stage = "Loading workflows…"; Signals.ReportLoading(true);
         var repo = Repo;
         try
@@ -249,7 +254,7 @@
             _runs = await runsTask;
             var cfg = await cfgTask;
             _config = cfg.Config;
-            if (cfg.Warning is not null) _warnings.Add(cfg.Warning);
+            _configMessages = cfg.Diagnostics.Select(d => d.ToString()).ToList();
             _workflows = WithOrphans(wfs, _runs);
             Recompute();
             SeedSmallRepo();
@@ -271,10 +276,13 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task<(GroupConfig Config, string? Warning)> ReadConfigAsync(RepoRef repo, CancellationToken ct)
+    private async Task<GroupConfigParseResult> ReadConfigAsync(RepoRef repo, CancellationToken ct)
     {
-        try { return GroupConfigParser.Parse(await Provider.GetFileAsync(repo, ".ciworkbench.yml", ct)); }
-        catch (CiProviderException ex) { return (new GroupConfig(), $"Could not read .ciworkbench.yml ({ex.Message}) — using YAML comments and defaults."); }
+        try { return GroupConfigParser.Parse(await Provider.GetFileAsync(repo, GroupConfigContract.FileName, ct)); }
+        catch (CiProviderException ex)
+        {
+            return new GroupConfigParseResult(new GroupConfig(), [new ConfigDiagnostic(ConfigSeverity.Warning, "unreadable", $"could not be read ({ex.Message}); using workflow comments and defaults")]);
+        }
     }
 
     /// <summary>Runs whose workflow is not in the workflow list still appear, under their own entry, so nothing silently disappears.</summary>
@@ -291,11 +299,8 @@
         _summary = RunSummary.From(_runs);
         var done = _runs.Where(r => r.Duration is not null).ToList();
         _avgDuration = done.Count == 0 ? null : TimeSpan.FromSeconds(done.Average(r => r.Duration!.Value.TotalSeconds));
-        _grouping = WorkflowGroupResolver.Resolve(_workflows!, _config, _commentGroups, _warnings.Where(w => w.StartsWith(".ciworkbench.yml")).ToList());
-        // Grouping warnings are recomputed on every pass (e.g. after YAML-comment groups resolve) so stale ones never linger.
-        _warnings.RemoveAll(w => w.StartsWith("Group \"", StringComparison.Ordinal));
-        if (!_resolvingGroups && _commentsTotal == _commentsDone)
-            foreach (var w in _grouping.Warnings.Where(w => !_warnings.Contains(w))) _warnings.Add(w);
+        // Grouping warnings are recomputed on every pass (e.g. after YAML-comment groups resolve), so stale ones never linger.
+        _grouping = WorkflowGroupResolver.Resolve(_workflows!, _config, _commentGroups);
     }
 
     /// <summary>

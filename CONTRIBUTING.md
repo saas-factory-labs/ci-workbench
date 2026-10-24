@@ -24,7 +24,7 @@ Thanks for helping! You need the .NET 10 SDK and nothing else. No private feeds 
    pre-commit install
    ```
    Run all hooks manually with `pre-commit run --all-files`. A local hook can be skipped with `--no-verify`, so it is a convenience, not the enforcement.
-2. **CI** (`.github/workflows/git-guardian.yml`): runs GitGuardian on pushes to `main`, version tags, pull requests from this repository, and manual dispatch. It needs the repository secret `GITGUARDIAN_API_KEY` and fails loudly when it is missing, so a scan that cannot run never passes silently.
+2. **CI**: `.github/workflows/gitleaks.yml` runs [Gitleaks](https://github.com/gitleaks/gitleaks) (open source, no account needed, also for forks; the binary is pinned by version and sha256) over the full history, and `.github/workflows/git-guardian.yml`: runs GitGuardian on pushes to `main`, version tags, pull requests from this repository, and manual dispatch. It needs the repository secret `GITGUARDIAN_API_KEY` and fails loudly when it is missing, so a scan that cannot run never passes silently.
 3. **GitHub secret scanning with push protection** is enabled on the repository and rejects pushes that contain recognised provider tokens.
 
 Test fixtures must use obviously fake values (for example `ghp_..._NOT_REAL_...`). If a scanner flags a deliberate dummy, add it to `.gitguardian.yaml` with a reason rather than weakening the hook. Pin new Actions with `uses: owner/repo@<40-hex>  # vX.Y.Z`.
