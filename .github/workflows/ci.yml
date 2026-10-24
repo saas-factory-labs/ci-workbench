@@ -1,0 +1,23 @@
+﻿name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet build CIWorkbench.slnx --configuration Release
+      - run: dotnet test tests/CIWorkbench.Core.Tests --configuration Release --no-build
+      - run: dotnet test tests/CIWorkbench.GitHub.Tests --configuration Release --no-build
+      - run: dotnet test tests/CIWorkbench.Web.Tests --configuration Release --no-build
+
