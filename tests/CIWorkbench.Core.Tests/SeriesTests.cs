@@ -139,3 +139,42 @@ public class AgentContextTests
     }
 }
 
+
+public class DemoFixtureTests
+{
+    private static readonly TimeProvider Clock = new FixedClock(T.Now);
+
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider { public override DateTimeOffset GetUtcNow() => now; }
+
+    [Fact] public async Task Monorepo_has_many_workflows_and_all_are_grouped_exactly_once()
+    {
+        var p = new CIWorkbench.Core.Demo.DemoCiProvider(Clock);
+        var wfs = await p.ListWorkflowsAsync(CIWorkbench.Core.Demo.DemoCiProvider.Monorepo, default);
+        Assert.InRange(wfs.Count, 35, 45);
+        var yaml = await p.GetFileAsync(CIWorkbench.Core.Demo.DemoCiProvider.Monorepo, ".ciworkbench.yml", default);
+        var (cfg, warn) = CIWorkbench.Core.Grouping.GroupConfigParser.Parse(yaml);
+        Assert.Null(warn);
+        var comments = new Dictionary<string, string?>();
+        foreach (var w in wfs) comments[w.Path] = CIWorkbench.Core.Grouping.WorkflowGroupResolver.ExtractCommentGroup(await p.GetFileAsync(CIWorkbench.Core.Demo.DemoCiProvider.Monorepo, w.Path, default));
+        var res = CIWorkbench.Core.Grouping.WorkflowGroupResolver.Resolve(wfs, cfg, comments);
+        Assert.Equal(wfs.Count, res.AllWorkflows.Count());
+        Assert.True(res.Groups.Count >= 5);
+    }
+
+    [Fact] public async Task Actor_repo_yields_two_distinct_series_and_keeps_same_job_different_error_apart()
+    {
+        var p = new CIWorkbench.Core.Demo.DemoCiProvider(Clock);
+        var repo = CIWorkbench.Core.Demo.DemoCiProvider.ActorRepo;
+        var runs = await p.ListRecentRunsAsync(repo, 100, default);
+        var analysis = await new CIWorkbench.Core.Failures.FailureAnalyzer(p).AnalyzeAsync(repo, runs, false, 30, default);
+        var paging = analysis.Series.Single(s => s.Key.JobKey == "deep-paging-test");
+        var browser = analysis.Series.Single(s => s.Key.JobKey == "scenario-tests" && s.Raw().Contains("Executable"));
+        var assertion = analysis.Series.Single(s => s.Key.JobKey == "scenario-tests" && s.Raw().Contains("AssertionError"));
+        Assert.Equal(15, paging.Count); Assert.Equal(15, paging.Streak);
+        Assert.Equal(10, browser.Count); Assert.Equal(9, browser.Streak);
+        Assert.Equal(1, assertion.Count);
+        Assert.Equal(3, analysis.Series.Count);
+    }
+}
+
+internal static class SeriesExt { public static string Raw(this CIWorkbench.Core.Failures.FailureSeries s) => s.RawSignature ?? ""; }

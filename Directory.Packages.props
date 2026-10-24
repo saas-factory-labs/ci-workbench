@@ -1,7 +1,6 @@
 ﻿<Project>
   <ItemGroup>
     <PackageVersion Include="YamlDotNet" Version="18.1.0" />
-    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.11.0" />
     <PackageVersion Include="Microsoft.AspNetCore.Components.Web" Version="10.0.11" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.13" />
     <PackageVersion Include="coverlet.collector" Version="6.0.4" />
@@ -12,3 +11,4 @@
     <PackageVersion Include="bunit" Version="2.12.5" />
   </ItemGroup>
 </Project>
+
