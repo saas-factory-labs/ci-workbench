@@ -1,0 +1,49 @@
+@implements IDisposable
+@inject AppSession Session
+@inject NavigationManager Nav
+
+<nav class="sidebar" aria-label="Main">
+    <a class="nav @Cls(Section.Overview)" href="overview" aria-current="@Current(Section.Overview)"><Icon Name="home" Size="20" /> Overview</a>
+    <a class="nav @Cls(Section.Repositories)" href="repositories" aria-current="@Current(Section.Repositories)"><Icon Name="repo" Size="20" /> Repositories <span class="ciw-count">@Session.Repositories.Count@(Session.Discovery == DiscoveryState.Running ? "+" : "")</span></a>
+    <a class="nav @Cls(Section.Groups)" href="@GroupsHref" aria-current="@Current(Section.Groups)"><Icon Name="layers" Size="20" /> Workflow Groups</a>
+    <a class="nav @Cls(Section.Failures)" href="@FailuresHref" aria-current="@Current(Section.Failures)"><Icon Name="shield-alert" Size="20" /> Failure Series</a>
+    <a class="nav @Cls(Section.Settings)" href="settings" aria-current="@Current(Section.Settings)"><Icon Name="sliders" Size="20" /> Settings</a>
+    @if (Session.Recent.Count > 0)
+    {
+        <h6>Recent repositories</h6>
+        @foreach (var r in Session.Recent)
+        {
+            <a class="recent @(Session.Selected.Equals(r) ? "current" : "")" href="repo/@r.Owner/@r.Name"><Icon Name="repo" Size="17" /> <span>@r.Name</span></a>
+        }
+    }
+</nav>
+
+@code {
+    private enum Section { None, Overview, Repositories, Groups, Failures, Settings }
+
+    private string GroupsHref => Session.Selected is { } s ? $"repo/{s.Owner}/{s.Name}" : "repositories";
+    private string FailuresHref => Session.Selected is { } s ? $"repo/{s.Owner}/{s.Name}/failures" : "repositories";
+
+    /// <summary>Exactly one primary item is active, derived from the URL.</summary>
+    private Section Active
+    {
+        get
+        {
+            var path = new Uri(Nav.Uri).AbsolutePath.TrimEnd('/');
+            if (path.Length == 0) return Section.None;
+            if (path.Equals("/overview", StringComparison.OrdinalIgnoreCase)) return Section.Overview;
+            if (path.Equals("/repositories", StringComparison.OrdinalIgnoreCase)) return Section.Repositories;
+            if (path.Equals("/settings", StringComparison.OrdinalIgnoreCase)) return Section.Settings;
+            if (path.StartsWith("/repo/", StringComparison.OrdinalIgnoreCase)) return path.EndsWith("/failures", StringComparison.OrdinalIgnoreCase) ? Section.Failures : Section.Groups;
+            return Section.None;
+        }
+    }
+
+    private string Cls(Section s) => Active == s ? "active" : "";
+    private string? Current(Section s) => Active == s ? "page" : null;
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    protected override void OnInitialized() { Session.Changed += OnChanged; Nav.LocationChanged += OnLocation; }
+    private void OnLocation(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);
+    public void Dispose() { Session.Changed -= OnChanged; Nav.LocationChanged -= OnLocation; }
+}

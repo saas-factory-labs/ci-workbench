@@ -176,7 +176,9 @@ public class DemoFixtureTests
         foreach (var w in wfs) comments[w.Path] = CIWorkbench.Core.Grouping.WorkflowGroupResolver.ExtractCommentGroup(await p.GetFileAsync(CIWorkbench.Core.Demo.DemoCiProvider.Monorepo, w.Path, default));
         var res = CIWorkbench.Core.Grouping.WorkflowGroupResolver.Resolve(wfs, cfg, comments);
         Assert.Equal(wfs.Count, res.AllWorkflows.Count());
-        Assert.True(res.Groups.Count >= 5);
+        var names = res.Groups.Select(g => g.Name).ToList();
+        foreach (var expected in new[] { "Build & Test", "Security", "Deployment", "Quality", "Packages", "Documentation", "Maintenance", "AI Agents" }) Assert.Contains(expected, names);
+        Assert.DoesNotContain(res.Groups, g => g.Name == "Ungrouped");
     }
 
     [Fact] public async Task Actor_repo_yields_two_distinct_series_and_keeps_same_job_different_error_apart()
@@ -185,9 +187,9 @@ public class DemoFixtureTests
         var repo = CIWorkbench.Core.Demo.DemoCiProvider.ActorRepo;
         var runs = await p.ListRecentRunsAsync(repo, 100, default);
         var analysis = await new CIWorkbench.Core.Failures.FailureAnalyzer(p).AnalyzeAsync(repo, runs, false, 30, default);
-        var paging = analysis.Series.Single(s => s.Key.JobKey == "deep-paging-test");
-        var browser = analysis.Series.Single(s => s.Key.JobKey == "scenario-tests" && s.Raw().Contains("Executable"));
-        var assertion = analysis.Series.Single(s => s.Key.JobKey == "scenario-tests" && s.Raw().Contains("AssertionError"));
+        var paging = analysis.Series.Single(s => s.Key.JobKey == "Deep-paging test");
+        var browser = analysis.Series.Single(s => s.Key.JobKey == "Browser scenario tests" && s.Raw().Contains("Executable"));
+        var assertion = analysis.Series.Single(s => s.Key.JobKey == "Browser scenario tests" && s.Raw().Contains("AssertionError"));
         Assert.Equal(15, paging.Count); Assert.Equal(15, paging.Streak);
         Assert.Equal(10, browser.Count); Assert.Equal(9, browser.Streak);
         Assert.Equal(1, assertion.Count);

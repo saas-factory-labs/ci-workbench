@@ -1,10 +1,12 @@
 <div class="ciw-group depth-@Depth" data-group="@Group.Path">
     <div class="ciw-group-head" tabindex="0" role="button" aria-expanded="@(Open ? "true" : "false")" @onclick="() => Ws.ToggleGroup(Group)" @onkeydown="OnKey">
-        <span class="ciw-chev @(Open ? "open" : "")" aria-hidden="true">›</span>
+        <Icon Name="@(Open ? "chevron-down" : "chevron-right")" Size="16" Class="ciw-chev" />
+        <span class="ciw-gicon @GroupStyle.Tone"><Icon Name="@GroupStyle.Icon" Size="18" /></span>
         <span class="ciw-group-name">@Group.Name</span>
         <span class="ciw-count" title="Workflows in this group">@Ws.VisibleCount(Group)</span>
         @if (!string.IsNullOrEmpty(Group.Description)) { <span class="ciw-muted ciw-desc">@Group.Description</span> }
         <span class="ciw-spacer"></span>
+        @if (Ws.GroupFailing(Group) is > 0 and var failing) { <span class="ciw-chip bad" title="Workflows whose latest run failed">@failing failing</span> }
         <SuccessBar Rate="Ws.GroupRate(Group)" />
     </div>
     @if (Open)
@@ -29,4 +31,21 @@
 
     private bool Open => Ws.GroupOpen(Group);
     private void OnKey(KeyboardEventArgs e) { if (e.Key is "Enter" or " ") Ws.ToggleGroup(Group); }
+
+    private (string Icon, string Tone) GroupStyle
+    {
+        get
+        {
+            var n = Group.Name.ToLowerInvariant();
+            if (n.Contains("security")) return ("shield", "teal");
+            if (n.Contains("deploy")) return ("cloud-up", "green");
+            if (n.Contains("quality")) return ("diamond", "blue");
+            if (n.Contains("package")) return ("package", "grey");
+            if (n.Contains("doc")) return ("file", "purple");
+            if (n.Contains("agent")) return ("bot", "violet");
+            if (n.Contains("maint")) return ("wrench", "amber");
+            if (n.Contains("build") || n.Contains("test") || n.Contains("ci")) return ("hammer", "blue");
+            return ("layers", "grey");
+        }
+    }
 }

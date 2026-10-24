@@ -54,10 +54,10 @@ public static partial class SignatureExtractor
         s = IsoDate().Replace(s, "<ts>");
         s = Clock().Replace(s, "<time>");
         s = Duration().Replace(s, "<dur>");
-        s = Hex().Replace(s, "<hex>");
+        s = Hex().Replace(s, "<id>");
         s = Port().Replace(s, "<port>");
         s = LineCol().Replace(s, "(L,C)");
-        s = BigNumber().Replace(s, "<n>");
+        s = BigNumber().Replace(s, "<id>");
         s = Spaces().Replace(s, " ").Trim();
         return s.Length > MaxSignatureLength ? s[..MaxSignatureLength] : s;
     }

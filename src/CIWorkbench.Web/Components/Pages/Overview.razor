@@ -1,72 +1,43 @@
-@page "/"
+@page "/overview"
 @implements IDisposable
 @inject AppSession Session
 @inject TimeProvider Time
 
 <PageTitle>Overview · CIWorkbench</PageTitle>
 <h1 class="page-title">Overview</h1>
-<p class="ciw-muted">Your CI/CD workspace. Repositories are discovered progressively; workflows load only for the repository you open.</p>
 
-<div class="cards">
-    <section class="card" aria-labelledby="conn-h">
-        <h2 id="conn-h">Connection</h2>
-        @if (Session.Mode == DataMode.Demo)
-        {
-            <p><span class="pill demo">Demo mode</span> No credentials are used. All data is synthetic.</p>
-            @if (Session.LiveAvailable)
-            {
-                <button class="ciw-btn primary" @onclick="() => Session.SetMode(DataMode.Live)">Use live GitHub data</button>
-            }
-            else
-            {
-                <p class="ciw-muted">To use real data, supply a read-only fine-grained token server-side:</p>
-                <pre class="code">dotnet user-secrets set "GitHub:Token" "&lt;fine-grained PAT&gt;" --project src/CIWorkbench.Web</pre>
-                <p class="ciw-muted">Then restart and set <code>CIWORKBENCH_MODE=live</code> (or use the switch here). See docs/development/github-permissions.md.</p>
-            }
-        }
-        else
-        {
-            <ChecklistView Report="Session.Connection" Busy="Session.CheckingConnection" />
-            <button class="ciw-btn" @onclick="Session.CheckConnectionAsync" disabled="@Session.CheckingConnection">@(Session.Connection is null ? "Verify permissions" : "Re-verify")</button>
-        }
-    </section>
-
-    <section class="card" aria-labelledby="disc-h">
-        <h2 id="disc-h">Repository discovery</h2>
-        <DiscoveryStatus />
-        @if (Session.Repositories.Count > 0)
-        {
-            <h3>Recently active</h3>
-            <ul class="repo-quick">
-                @foreach (var r in Session.Repositories.Take(6))
-                {
-                    <li><a href="repo/@r.Ref.Owner/@r.Ref.Name">@r.Ref.FullName</a> <span class="ciw-muted">@Fmt.Ago(r.PushedAt, Time.GetUtcNow())</span></li>
-                }
-            </ul>
-            <a href="repositories">Browse all repositories →</a>
-        }
-    </section>
-
-    <section class="card" aria-labelledby="rate-h">
-        <h2 id="rate-h">API budget</h2>
-        @{ var rl = Session.Tracker.Last ?? Session.RateLimit; }
-        @if (Session.Mode == DataMode.Demo) { <p class="ciw-muted">Not applicable in demo mode.</p> }
-        else if (rl is null) { <p class="ciw-muted">Appears after the first GitHub request.</p> }
-        else
-        {
-            <p><strong>@rl.Remaining</strong> of @rl.Limit requests left · resets @Fmt.Ago(rl.ResetsAt, Time.GetUtcNow()).Replace(" ago", "") @(rl.ResetsAt > Time.GetUtcNow() ? "from now" : "")</p>
-            <progress max="@rl.Limit" value="@rl.Remaining" aria-label="Remaining API requests"></progress>
-        }
-        @if (Session.Tracker.IsThrottled(Time.GetUtcNow())) { <p class="ciw-notice warn">Requests are currently being rate-limited; waiting until @Session.Tracker.ThrottledUntil?.ToString("HH:mm:ss") UTC.</p> }
-    </section>
+<div class="statusline" role="status">
+    <span class="pill @(Session.Mode == DataMode.Demo ? "demo" : "ok")">@(Session.Mode == DataMode.Demo ? "Demo data" : "Live GitHub")</span>
+    <DiscoveryInline />
+    <a href="settings" class="ciw-muted">Connection and permissions are in Settings →</a>
 </div>
+
+<h2 class="section-title">Recently active repositories</h2>
+@if (Session.Repositories.Count == 0)
+{
+    <div class="ciw-empty">@(Session.Discovery == DiscoveryState.Running ? "Discovering repositories…" : "No repositories found.")</div>
+}
+else
+{
+    <div class="repo-cards" data-testid="repo-cards">
+        @foreach (var r in Session.Repositories.Take(8))
+        {
+            <a class="repo-card" href="repo/@r.Ref.Owner/@r.Ref.Name">
+                <span class="repo-card-icon"><Icon Name="repo" Size="22" /></span>
+                <span class="repo-card-body">
+                    <strong>@r.Ref.Name</strong>
+                    <small class="ciw-muted">@r.Ref.Owner · pushed @Fmt.Ago(r.PushedAt, Time.GetUtcNow())</small>
+                    <small class="ciw-muted clamp">@r.Description</small>
+                </span>
+                <Icon Name="chevron-right" Size="18" Class="ciw-muted" />
+            </a>
+        }
+    </div>
+    <p><a href="repositories">Browse all @Session.Repositories.Count repositories →</a></p>
+}
 
 @code {
     private void OnChanged() => InvokeAsync(StateHasChanged);
-    protected override void OnInitialized() { Session.Changed += OnChanged; Session.Tracker.Changed += OnChanged; }
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender && Session.Connection is null && !Session.CheckingConnection && Session.Mode == DataMode.Live) await Session.CheckConnectionAsync();
-    }
-    public void Dispose() { Session.Changed -= OnChanged; Session.Tracker.Changed -= OnChanged; }
+    protected override void OnInitialized() => Session.Changed += OnChanged;
+    public void Dispose() => Session.Changed -= OnChanged;
 }

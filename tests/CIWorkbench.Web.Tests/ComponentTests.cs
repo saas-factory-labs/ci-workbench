@@ -4,6 +4,8 @@ using CIWorkbench.Components;
 using CIWorkbench.Core.Demo;
 using CIWorkbench.Core.Models;
 using Microsoft.Extensions.DependencyInjection;
+using CIWorkbench.GitHub;
+using CIWorkbench.Web;
 
 namespace CIWorkbench.Web.Tests;
 
@@ -59,11 +61,12 @@ public class ComponentTests : BunitContext
     {
         var cut = await RenderWorkspace(DemoCiProvider.Monorepo);
         cut.Find("button[data-filter=Failed]").Click();
-        cut.Find(".ciw-toolbar .ciw-btn.sm").Click(); // Expand all
+        if (cut.FindAll("[data-action=collapse-all]").Count > 0) cut.Find("[data-action=collapse-all]").Click();
+        cut.Find("[data-action=expand-all]").Click();
         var failed = cut.FindAll("[data-workflow]").Select(e => e.GetAttribute("data-workflow")).ToList();
         Assert.NotEmpty(failed);
         Assert.Contains(".github/workflows/container-scan.yml", failed);
-        Services.GetRequiredService<WorkspaceSignals>().SetSearch("container");
+        Services.GetRequiredService<WorkspaceSignals>().SetSearch("container-scan");
         cut.WaitForAssertion(() => Assert.Single(cut.FindAll("[data-workflow]")));
     }
 
@@ -125,5 +128,74 @@ public class ComponentTests : BunitContext
         var asm = typeof(RepositoryWorkspace).Assembly;
         Assert.DoesNotContain(asm.GetTypes(), t => t.GetCustomAttributes(typeof(Microsoft.AspNetCore.Components.RouteAttribute), true).Length > 0);
         Assert.DoesNotContain(asm.GetReferencedAssemblies(), a => a.Name!.Contains("SaaS", StringComparison.OrdinalIgnoreCase) || a.Name!.Contains("AppBlueprint", StringComparison.OrdinalIgnoreCase));
+    }
+}
+
+public class NavigationTests : BunitContext
+{
+    private void Arrange()
+    {
+        var clock = new FixedClock(new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero));
+        Services.AddSingleton<TimeProvider>(clock);
+        var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
+        Services.AddSingleton<Microsoft.Extensions.Configuration.IConfiguration>(config);
+        Services.AddCIWorkbenchGitHub(config);
+        Services.AddScoped<DemoCiProvider>(sp => new DemoCiProvider(clock));
+        Services.AddScoped<AppSession>();
+        JSInterop.Mode = JSRuntimeMode.Loose;
+    }
+
+    [Theory]
+    [InlineData("/overview", "Overview")]
+    [InlineData("/repositories", "Repositories")]
+    [InlineData("/repo/example-org/platform-monorepo", "Workflow Groups")]
+    [InlineData("/repo/example-org/platform-monorepo/failures", "Failure Series")]
+    [InlineData("/settings", "Settings")]
+    public void Exactly_one_primary_nav_item_is_active_for_each_route(string path, string expected)
+    {
+        Arrange();
+        Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().NavigateTo(path);
+        var cut = Render<CIWorkbench.Web.Components.Layout.SideNav>();
+        var active = cut.FindAll("a.nav.active");
+        Assert.Single(active);
+        Assert.Contains(expected, active[0].TextContent);
+        Assert.Equal("page", active[0].GetAttribute("aria-current"));
+    }
+}
+internal sealed class SpyProvider(DemoCiProvider inner) : ICiProvider
+{
+    public int WorkflowRunCalls;
+    public string Name => inner.Name; public bool IsDemo => false;   // behave like a live provider (no demo-only shortcuts)
+    public IAsyncEnumerable<RepositoryPage> ListRepositoriesAsync(CancellationToken ct) => inner.ListRepositoriesAsync(ct);
+    public Task<IReadOnlyList<WorkflowInfo>> ListWorkflowsAsync(RepoRef repo, CancellationToken ct) => inner.ListWorkflowsAsync(repo, ct);
+    public Task<IReadOnlyList<WorkflowRunInfo>> ListRecentRunsAsync(RepoRef repo, int max, CancellationToken ct) => inner.ListRecentRunsAsync(repo, max, ct);
+    public Task<IReadOnlyList<WorkflowRunInfo>> ListWorkflowRunsAsync(RepoRef repo, long workflowId, int max, CancellationToken ct) { Interlocked.Increment(ref WorkflowRunCalls); return inner.ListWorkflowRunsAsync(repo, workflowId, max, ct); }
+    public Task<IReadOnlyList<JobInfo>> ListJobsAsync(RepoRef repo, long runId, CancellationToken ct) => inner.ListJobsAsync(repo, runId, ct);
+    public Task<string?> GetJobLogTailAsync(RepoRef repo, long jobId, int maxBytes, CancellationToken ct) => inner.GetJobLogTailAsync(repo, jobId, maxBytes, ct);
+    public Task<string?> GetFileAsync(RepoRef repo, string path, CancellationToken ct) => inner.GetFileAsync(repo, path, ct);
+    public Task<RateLimitInfo?> GetRateLimitAsync(CancellationToken ct) => inner.GetRateLimitAsync(ct);
+    public Task<ConnectionReport> CheckConnectionAsync(RepoRef? sampleRepo, CancellationToken ct) => inner.CheckConnectionAsync(sampleRepo, ct);
+}
+
+public class HistoryWindowTests : BunitContext
+{
+    [Fact]
+    public async Task Selecting_a_workflow_in_a_truncated_window_fetches_one_bounded_page_of_its_own_history()
+    {
+        var clock = new FixedClock(new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero));
+        var spy = new SpyProvider(new DemoCiProvider(clock));
+        Services.AddSingleton<TimeProvider>(clock); Services.AddCIWorkbenchComponents(); Services.AddSingleton<ICiProvider>(spy);
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        // MaxRuns=60 truncates the shared window (the fixture has ~246 runs), so most workflows hold only 0-2 runs in it.
+        var cut = Render<RepositoryWorkspace>(p => { p.Add(c => c.Repo, DemoCiProvider.Monorepo); p.Add(c => c.MaxRuns, 60); p.Add(c => c.AutoRefresh, false); });
+        await cut.WaitForAssertionAsync(() => Assert.NotEmpty(cut.FindAll("[data-group]")), TimeSpan.FromSeconds(10));
+        await Task.Delay(400);                                          // let the first-view "open the best workflow" step finish
+        Assert.True(spy.WorkflowRunCalls <= 1);                         // overview itself never fetches per-workflow history; only the one opened workflow may
+        var before = spy.WorkflowRunCalls;
+        if (cut.FindAll("[data-action=collapse-all]").Count > 0) cut.Find("[data-action=collapse-all]").Click();
+        cut.Find("[data-action=expand-all]").Click();
+        // Open three workflows (the first-view "best" one may already have its history cached).
+        for (var i = 0; i < 3; i++) { cut.FindAll("[data-workflow] .ciw-wf-head")[i].Click(); await Task.Delay(150); }
+        Assert.InRange(spy.WorkflowRunCalls - before, 1, 3);                 // at most one bounded request per opened workflow, and the cache is used
     }
 }

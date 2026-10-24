@@ -78,45 +78,63 @@ public sealed class DemoCiProvider : ICiProvider
 
     // ---------------------------------------------------------------- fixture A
 
+    /// <summary>File name (without extension), display name, group assigned by YAML comment (null = assigned by central config).</summary>
     private static readonly (string File, string Name, string? Comment)[] MonorepoWorkflows =
     [
+        // Build & Test (8)
         ("ci-api", "CI: API", null), ("ci-web", "CI: Web", null), ("ci-worker", "CI: Worker", null), ("ci-cli", "CI: CLI", null),
-        ("ci-docs", "CI: Docs", null), ("ci-shared", "CI: Shared libraries", null), ("unit-tests", "Unit tests", null),
-        ("integration-tests", "Integration tests", null), ("e2e-tests", "End-to-end tests", null), ("lint", "Lint", null),
-        ("format-check", "Format check", null), ("codeql", "CodeQL analysis", "Security"), ("dependency-review", "Dependency review", "Security"),
-        ("secret-scan", "Secret scan", "Security"), ("container-scan", "Container image scan", "Security"), ("license-audit", "License audit", "Security"),
-        ("sbom", "SBOM generation", "Security"), ("deploy-staging", "Deploy: staging", null), ("deploy-production", "Deploy: production", null),
-        ("deploy-docs", "Deploy: docs site", null), ("rollback", "Rollback", null), ("migrate-db", "Database migrations", null),
+        ("ci-shared", "CI: Shared libraries", null), ("unit-tests", "Unit tests", null), ("integration-tests", "Integration tests", null), ("e2e-tests", "End-to-end tests", null),
+        // Security (6, by YAML comment)
+        ("codeql", "CodeQL analysis", "Security"), ("dependency-review", "Dependency review", "Security"), ("secret-scan", "Secret scan", "Security"),
+        ("container-scan", "Container image scan", "Security"), ("license-audit", "License audit", "Security"), ("sbom", "SBOM generation", "Security"),
+        // Deployment (5)
+        ("deploy-staging", "Deploy: staging", null), ("deploy-production", "Deploy: production", null), ("deploy-preview", "Deploy: PR preview", null),
+        ("rollback", "Rollback", null), ("migrate-db", "Database migrations", null),
+        // Quality (5)
+        ("lint", "Lint", null), ("format-check", "Format check", null), ("type-check", "Type check", null), ("coverage-report", "Coverage report", null), ("benchmarks", "Benchmarks", null),
+        // Packages (5)
+        ("publish-nuget", "Publish: NuGet", null), ("publish-npm", "Publish: npm", null), ("publish-images", "Publish: container images", null),
+        ("publish-cli", "Publish: CLI binaries", null), ("nightly", "Nightly build", null),
+        // Documentation (3)
+        ("ci-docs", "CI: Docs", null), ("deploy-docs", "Deploy: docs site", null), ("link-check", "Link checker", null),
+        // Maintenance (4)
+        ("stale", "Close stale issues", null), ("labeler", "PR labeler", null), ("release-notes", "Release notes", null), ("cache-cleanup", "Cache cleanup", null),
+        // AI Agents (3, by YAML comment)
         ("agent-triage", "Agent: issue triage", "AI Agents"), ("agent-review", "Agent: PR review", "AI Agents"), ("agent-docs", "Agent: docs sync", "AI Agents"),
-        ("agent-flaky", "Agent: flaky test hunter", "AI Agents"), ("publish-nuget", "Publish: NuGet", null), ("publish-npm", "Publish: npm", null),
-        ("publish-images", "Publish: container images", null), ("publish-cli", "Publish: CLI binaries", null), ("nightly", "Nightly build", null),
-        ("stale", "Close stale issues", "Maintenance"), ("labeler", "PR labeler", "Maintenance"), ("release-notes", "Release notes", "Maintenance"),
-        ("cache-cleanup", "Cache cleanup", "Maintenance"), ("dependabot-auto", "Dependabot auto-merge", "Maintenance"),
-        ("benchmarks", "Benchmarks", null), ("link-check", "Link checker", null), ("pages", "pages-build-deployment", null),
     ];
 
-    private static readonly string[] Actors = ["octo-bot", "github-actions", "river-dev", "sam-test", "jules-ops"];
+    /// <summary>Workflows whose recent runs fail with a stable, recurring error: file -> (job, failing step, error kind, consecutive failures).</summary>
+    private static readonly Dictionary<string, (string Job, string Step, string Kind, int Failures)> Recurring = new()
+    {
+        ["container-scan"] = ("Scan published images", "Trivy scan", "scan", 5),
+        ["publish-images"] = ("Image rollout stabilization", "Wait for rollout", "rollout", 3),
+        ["link-check"] = ("Check documentation links", "Run link checker", "link", 4),
+    };
+
+    private static readonly string[] Actors = ["github-actions", "river-dev", "sam-test", "jules-ops", "octo-bot"];
     private static readonly string[] Branches = ["main", "main", "main", "feat/pagination", "fix/cache-key", "chore/deps"];
+    private static readonly string[] FlakyWords = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india"];
 
     private void BuildMonorepo()
     {
         var repo = Monorepo;
-        _repos[repo] = new RepositoryInfo(repo, "Synthetic large monorepo with 39 workflows (demo data).", "main", false, $"https://example.invalid/{repo.FullName}", _now.AddMinutes(-12));
+        _repos[repo] = new RepositoryInfo(repo, $"Synthetic large monorepo with {MonorepoWorkflows.Length} workflows (demo data).", "main", false, $"https://example.invalid/{repo.FullName}", _now.AddMinutes(-12));
         var wfs = new List<WorkflowInfo>(); var runs = new List<WorkflowRunInfo>();
         for (var i = 0; i < MonorepoWorkflows.Length; i++)
         {
             var (file, name, _) = MonorepoWorkflows[i];
-            var path = file == "pages" ? "dynamic/pages/pages-build-deployment" : $".github/workflows/{file}.yml";
+            var path = $".github/workflows/{file}.yml";
             var wf = new WorkflowInfo(1000 + i, name, path, i % 17 != 16, $"https://example.invalid/{repo.FullName}/actions/workflows/{file}.yml");
             wfs.Add(wf);
             var scheduled = file is "codeql" or "secret-scan" or "container-scan" or "nightly" or "stale" or "cache-cleanup" or "license-audit" or "link-check";
-            var failing = file is "container-scan" or "e2e-tests" or "link-check";
-            for (var n = 0; n < 10; n++)
+            Recurring.TryGetValue(file, out var rec);
+            for (var n = 0; n < (rec.Failures > 0 ? 10 : 6); n++)
             {
                 var id = 1_000_000 + i * 100 + n;
-                var state = n == 0 && file is "ci-web" or "deploy-staging" ? RunState.InProgress
+                var state = n == 0 && (file is "ci-web" or "deploy-staging") ? RunState.InProgress
                     : n == 1 && file == "ci-api" ? RunState.Queued
-                    : failing && n < 5 ? RunState.Failure
+                    : rec.Failures > n ? RunState.Failure
+                    : rec.Failures > 0 ? RunState.Success
                     : (i * 7 + n * 3) % 11 == 0 ? RunState.Failure
                     : (i + n) % 13 == 0 ? RunState.Cancelled : RunState.Success;
                 var age = TimeSpan.FromHours(n * (scheduled ? 24 : 5) + 1 + i % 4);
@@ -127,21 +145,40 @@ public sealed class DemoCiProvider : ICiProvider
                 var run = new WorkflowRunInfo(id, wf.Id, path, name, 200 + n, 1, state, ev, branch, Sha(id), $"Demo commit message {id % 97}", Actors[(i + n) % Actors.Length],
                     started, started, state.IsActive() ? started.AddMinutes(1) : started + dur, $"https://example.invalid/{repo.FullName}/actions/runs/{id}");
                 runs.Add(run);
-                _jobs[id] = [MakeJob(id, 0, "build", state, started, dur, ["Checkout", "Setup toolchain", "Restore", "Build", "Test"], file)];
+                var jobName = rec.Job ?? "build";
+                var steps = rec.Step is null ? new[] { "Checkout", "Setup toolchain", "Restore", "Build", "Test" } : new[] { "Checkout", "Setup toolchain", rec.Step };
+                _jobs[id] = [MakeJob(id, 0, jobName, state, started, dur, steps)];
                 if (state == RunState.Failure)
-                    _logs[id * 10] = LogFor(file == "container-scan" ? "scan" : file == "link-check" ? "link" : file == "e2e-tests" ? "e2e" : "generic", id, 0);
+                    _logs[id * 10] = LogFor(rec.Kind ?? "flaky", id);
             }
         }
         _workflows[repo] = wfs; _runs[repo] = runs;
         _files[(repo, ".ciworkbench.yml")] = """
             groups:
               - name: Build & Test
-                workflows: [".github/workflows/ci-*.yml", ".github/workflows/*-tests.yml", ".github/workflows/lint.yml", ".github/workflows/format-check.yml"]
+                description: Compile, unit, integration and end-to-end tests
+                workflows: [".github/workflows/ci-api.yml", ".github/workflows/ci-web.yml", ".github/workflows/ci-worker.yml", ".github/workflows/ci-cli.yml", ".github/workflows/ci-shared.yml", ".github/workflows/*-tests.yml"]
+              - name: Security
+                description: Code, dependency and image scanning
+                workflows: []
               - name: Deployment
                 description: Staging and production delivery
-                workflows: [".github/workflows/deploy-*.yml", ".github/workflows/rollback.yml", ".github/workflows/migrate-db.yml"]
+                workflows: [".github/workflows/deploy-staging.yml", ".github/workflows/deploy-production.yml", ".github/workflows/deploy-preview.yml", ".github/workflows/rollback.yml", ".github/workflows/migrate-db.yml"]
+              - name: Quality
+                description: Linting, type checking and performance
+                workflows: [".github/workflows/lint.yml", ".github/workflows/format-check.yml", ".github/workflows/type-check.yml", ".github/workflows/coverage-report.yml", ".github/workflows/benchmarks.yml"]
               - name: Packages
+                description: Build and publish packages and images
                 workflows: [".github/workflows/publish-*.yml", ".github/workflows/nightly.yml"]
+              - name: Documentation
+                description: Build, check and publish documentation
+                workflows: [".github/workflows/ci-docs.yml", ".github/workflows/deploy-docs.yml", ".github/workflows/link-check.yml"]
+              - name: Maintenance
+                description: Housekeeping automation
+                workflows: [".github/workflows/stale.yml", ".github/workflows/labeler.yml", ".github/workflows/release-notes.yml", ".github/workflows/cache-cleanup.yml"]
+              - name: AI Agents
+                description: Automation driven by coding agents
+                workflows: []
             """;
         foreach (var (file, _, comment) in MonorepoWorkflows.Where(w => w.Comment is not null))
             _files[(repo, $".github/workflows/{file}.yml")] = $"# ci-workbench-group: {comment}\nname: demo\non: push\n";
@@ -152,10 +189,10 @@ public sealed class DemoCiProvider : ICiProvider
     private void BuildActorRepo()
     {
         var repo = ActorRepo;
-        _repos[repo] = new RepositoryInfo(repo, "Synthetic scraper actor with two workflows and recurring failures (demo data).", "main", false, $"https://example.invalid/{repo.FullName}", _now.AddHours(-2));
+        _repos[repo] = new RepositoryInfo(repo, "Daily CI health checks and production validation for a synthetic review scraper (demo data).", "main", false, $"https://example.invalid/{repo.FullName}", _now.AddHours(-2));
         var ci = new WorkflowInfo(2001, "CI", ".github/workflows/ci.yml", true, null);
-        var smoke = new WorkflowInfo(2002, "Production smoke test", ".github/workflows/smoke.yml", true, null);
-        _workflows[repo] = [ci, smoke];
+        var quality = new WorkflowInfo(2002, "Code Quality", ".github/workflows/quality.yml", true, null);
+        _workflows[repo] = [ci, quality];
         var runs = new List<WorkflowRunInfo>();
         for (var n = 0; n < 28; n++)
         {
@@ -172,24 +209,38 @@ public sealed class DemoCiProvider : ICiProvider
                 "Demo: scheduled health check", "github-actions", started, started, started + dur, $"https://example.invalid/{repo.FullName}/actions/runs/{id}"));
             _jobs[id] =
             [
-                MakeJob(id, 0, "typescript-build", RunState.Success, started, TimeSpan.FromSeconds(134), ["Checkout", "Install", "tsc"], "ci"),
-                MakeJob(id, 1, "jest-core-tests", RunState.Success, started, TimeSpan.FromSeconds(262), ["Checkout", "Install", "Run jest"], "ci"),
-                MakeJob(id, 2, "docker-image-smoke", RunState.Success, started, TimeSpan.FromSeconds(68), ["Build image", "Run container smoke test"], "ci"),
-                MakeJob(id, 3, "deep-paging-test", pagingFail ? RunState.Failure : RunState.Success, started, TimeSpan.FromSeconds(300), ["Checkout", "Install", "Run deep-paging (pages 10-15)"], "ci"),
-                MakeJob(id, 4, "scenario-tests", scenario != "pass" ? RunState.Failure : RunState.Success, started, TimeSpan.FromSeconds(240), ["Checkout", "Install browsers", "Run scenarios"], "ci"),
+                MakeJob(id, 0, "TypeScript Build", RunState.Success, started, TimeSpan.FromSeconds(134), ["Checkout", "Install", "tsc"]),
+                MakeJob(id, 1, "Jest core tests", RunState.Success, started, TimeSpan.FromSeconds(262), ["Checkout", "Install", "Run jest"]),
+                MakeJob(id, 2, "Production Image Smoke Test", RunState.Success, started, TimeSpan.FromSeconds(68), ["Pull image", "Run container smoke test"]),
+                MakeJob(id, 3, "Deep-paging test", pagingFail ? RunState.Failure : RunState.Success, started, TimeSpan.FromSeconds(300), ["Checkout", "Install", "Run deep-paging pages 10-15"]),
+                MakeJob(id, 4, "Browser scenario tests", scenario != "pass" ? RunState.Failure : RunState.Success, started, TimeSpan.FromSeconds(240), ["Checkout", "Install browsers", "Run scenarios"]),
             ];
-            if (pagingFail) _logs[id * 10 + 3] = LogFor("paging", id, 3);
-            if (scenario != "pass") _logs[id * 10 + 4] = LogFor(scenario, id, 4);
+            if (pagingFail) _logs[id * 10 + 3] = LogFor("paging", id);
+            if (scenario != "pass") _logs[id * 10 + 4] = LogFor(scenario, id);
         }
-        // smoke workflow: healthy, one run per day
-        for (var n = 0; n < 10; n++)
+        // Code Quality: healthy, six runs
+        for (var n = 0; n < 6; n++)
         {
             var id = 2_100_000 + n; var started = _now.Date.AddHours(6).AddDays(-n);
             if (started > _now) started = started.AddDays(-1);
-            runs.Add(new WorkflowRunInfo(id, smoke.Id, smoke.Path, "Production smoke test", 90 - n, 1, RunState.Success, "schedule", "main", Sha(id), "Demo: smoke", "github-actions", started, started, started.AddSeconds(68), $"https://example.invalid/{repo.FullName}/actions/runs/{id}"));
-            _jobs[id] = [MakeJob(id, 0, "production-image-smoke-test", RunState.Success, started, TimeSpan.FromSeconds(68), ["Pull image", "Run smoke test"], "smoke")];
+            runs.Add(new WorkflowRunInfo(id, quality.Id, quality.Path, "Code Quality", 90 - n, 1, RunState.Success, n % 2 == 0 ? "push" : "pull_request", n % 2 == 0 ? "main" : "feat/selectors", Sha(id), "Demo: lint and type check",
+                n % 2 == 0 ? "river-dev" : "sam-test", started, started, started.AddSeconds(95), $"https://example.invalid/{repo.FullName}/actions/runs/{id}"));
+            _jobs[id] =
+            [
+                MakeJob(id, 0, "Lint", RunState.Success, started, TimeSpan.FromSeconds(41), ["Checkout", "Install", "eslint"]),
+                MakeJob(id, 1, "Type check", RunState.Success, started, TimeSpan.FromSeconds(54), ["Checkout", "Install", "tsc --noEmit"]),
+            ];
         }
         _runs[repo] = runs;
+        _files[(repo, ".ciworkbench.yml")] = """
+            groups:
+              - name: CI
+                description: Build, test and publish the actor
+                workflows: [".github/workflows/ci.yml"]
+              - name: Code Quality
+                description: Linting, type checking and code quality analysis
+                workflows: [".github/workflows/quality.yml"]
+            """;
     }
 
     private void BuildFillerRepos()
@@ -208,7 +259,7 @@ public sealed class DemoCiProvider : ICiProvider
 
     private static string Sha(long seed) => (seed * 2654435761L % 0xFFFFFFFFFL).ToString("x9");
 
-    private JobInfo MakeJob(long runId, int k, string name, RunState state, DateTimeOffset started, TimeSpan dur, string[] steps, string tag)
+    private JobInfo MakeJob(long runId, int k, string name, RunState state, DateTimeOffset started, TimeSpan dur, string[] steps)
     {
         var failIdx = state == RunState.Failure ? steps.Length - 1 : -1;
         var list = steps.Select((s, idx) => new StepInfo(idx + 1, s,
@@ -218,22 +269,21 @@ public sealed class DemoCiProvider : ICiProvider
         return new JobInfo(runId * 10 + k, name, state, started, state.IsActive() ? null : started + dur, list, $"https://example.invalid/jobs/{runId * 10 + k}");
     }
 
-    private string LogFor(string kind, long runId, int k)
+    private string LogFor(string kind, long runId)
     {
         var ts = _now.AddMinutes(-(runId % 500)).ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ");
         var sha = Sha(runId);
         var ws = "/home/runner/work/synthetic/synthetic";
         var err = kind switch
         {
-            "paging" => "TimeoutError: page.goto: Timeout 30000ms exceeded while loading reviews page 12" + $" (request {Guid.NewGuid():D})",
-            "browser" => "Error: browserType.launch: Executable doesn't exist at " + ws + "/.cache/camoufox/firefox",
+            "paging" => "TimeoutError: page.goto: Timeout 30000ms exceeded while loading reviews page 12" + $" (request {new Guid((int)runId, 0, 0, [1, 2, 3, 4, 5, 6, 7, 8]):D})",
+            "browser" => "Error: browserType.launch: Executable doesn't exist at " + ws + "/.cache/camoufox/firefox (Firefox/Camoufox environment)",
             "assertion" => $"AssertionError: expected {3 + runId % 4} reviews but received 0",
             "scan" => "error TRIVY0001: HIGH vulnerability CVE-2026-1234 in libssl3 (container image sha256:" + sha + ")",
+            "rollout" => "Error: deployment \"web\" exceeded its progress deadline waiting for 2 replicas to become ready",
             "link" => $"Error: 3 broken links found in docs (see {ws}/docs/index.md)",
-            "e2e" => "Error: locator.click: Test timeout of 30000ms exceeded.",
-            _ => "Error: build step reported failures",
+            _ => $"Error: unexpected {FlakyWords[(int)(runId % FlakyWords.Length)]} failure in step",
         };
         return $"{ts} ##[group]Run tests\n{ts} noise line {runId}\n{ts} ##[endgroup]\n{ts} ##[error]{err}\n{ts} ##[error]Process completed with exit code 1.\n";
     }
 }
-

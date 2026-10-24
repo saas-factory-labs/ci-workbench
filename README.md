@@ -1,4 +1,4 @@
-﻿# CIWorkbench
+# CIWorkbench
 
 **Your CI/CD workspace.** An open-source workbench for organizing GitHub Actions workflows, monitoring runs and troubleshooting recurring failures across repositories. Built with .NET 10 and Blazor. Useful without AI.
 
@@ -22,7 +22,7 @@ Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download).
 dotnet run --project src/CIWorkbench.Web --urls http://localhost:5290
 ```
 
-Open <http://localhost:5290>. Demo mode uses fully synthetic data (a 39-workflow monorepo and a scraper actor with two recurring failure series) and is labelled as such.
+Open <http://localhost:5290>: it goes straight to the workflow workspace of a synthetic 39-workflow monorepo. Demo mode uses fully synthetic data (that monorepo and a scraper actor with two recurring failure series) and is labelled as such.
 
 ## Live GitHub (read-only)
 

@@ -11,16 +11,16 @@
 
 <RepositoryWorkspace Repo="_repo" View="@(IsFailures ? WorkspaceView.Failures : WorkspaceView.Groups)"
                      Description="@Info?.Description" DefaultBranch="@Info?.DefaultBranch"
-                     SelectedRunId="Inspector.Selection?.Run.Id"
+                     SelectedRunId="Inspector.Selection?.Run.Id" MaxRuns="@(Session.Mode == DataMode.Demo ? 250 : 100)"
                      OnRunSelected="Inspector.Select" OnViewFailures="GoFailures">
     <HeaderActions>
-        <nav class="tabs" aria-label="Repository views">
-            <a href="repo/@Owner/@Name" class="@(IsFailures ? "" : "on")">Workflow groups</a>
-            <a href="repo/@Owner/@Name/failures" class="@(IsFailures ? "on" : "")">Failure series</a>
-        </nav>
         @if (SafeHttps(Info?.HtmlUrl) is { } url)
         {
-            <a class="ciw-btn" href="@url" target="_blank" rel="noopener noreferrer">View on GitHub ↗</a>
+            <a class="ciw-btn" href="@url" target="_blank" rel="noopener noreferrer"><Icon Name="github" Size="17" /> View on GitHub</a>
+        }
+        else if (Session.Mode == DataMode.Demo)
+        {
+            <span class="ciw-btn disabled" aria-disabled="true" title="Demo data: this repository does not exist on GitHub."><Icon Name="github" Size="17" /> View on GitHub</span>
         }
     </HeaderActions>
 </RepositoryWorkspace>

@@ -11,7 +11,7 @@ public sealed record FailureAnalysis(IReadOnlyList<FailureSeries> Series, int Ru
 /// <summary>Lazy, bounded analysis: inspects jobs/logs for at most <c>maxRunsToInspect</c> newest failed runs.</summary>
 public sealed class FailureAnalyzer(ICiProvider provider)
 {
-    public const int DefaultMaxRuns = 12;
+    public const int DefaultMaxRuns = 15;
     public const int LogBytes = 64 * 1024;
 
     public async Task<FailureAnalysis> AnalyzeAsync(

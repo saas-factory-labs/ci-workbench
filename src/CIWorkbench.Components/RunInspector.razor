@@ -23,9 +23,13 @@
                 <dt>Duration</dt><dd>@Fmt.Duration(run.Duration)</dd>
             </dl>
             <div class="ciw-insp-actions">
-                @if (SafeUrl(run.HtmlUrl) is { } url)
+                @if (Provider.IsDemo)
                 {
-                    <a class="ciw-btn" href="@url" target="_blank" rel="noopener noreferrer">@(Provider.IsDemo ? "Open original (demo link)" : "Open on GitHub") ↗</a>
+                    <span class="ciw-btn disabled" aria-disabled="true" title="Demo data: this run does not exist on GitHub.">Open on GitHub ↗</span>
+                }
+                else if (SafeUrl(run.HtmlUrl) is { } url)
+                {
+                    <a class="ciw-btn" href="@url" target="_blank" rel="noopener noreferrer">Open on GitHub ↗</a>
                 }
                 <CopyContextButton BuildText="BuildContextAsync" Primary="true" />
             </div>

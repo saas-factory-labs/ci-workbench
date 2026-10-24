@@ -9,57 +9,63 @@
 }
 else
 {
-    <ul class="ciw-series" aria-label="Recurring failure series">
-    @foreach (var s in Recurring)
+    @if (Recurring.Count > 0)
     {
-        var key = Key(s);
-        var open = Prefs.IsExpanded(key);
-        <li class="ciw-series-item">
-            <div class="ciw-series-head" tabindex="0" role="button" aria-expanded="@(open ? "true" : "false")" @onclick="() => Prefs.Toggle(key)" @onkeydown="e => OnKey(e, key)" data-series>
-                <span class="ciw-chev @(open ? "open" : "")" aria-hidden="true">›</span>
-                <span class="ciw-alert-dot" aria-hidden="true">!</span>
-                <span class="ciw-series-title" title="@s.Summary">
-                    <strong>@s.JobDisplay</strong> <span class="ciw-muted">›</span> @s.StepDisplay
-                    <span class="ciw-sig">@Describe(s)</span>
-                </span>
-                <span class="ciw-count" title="Matching failed runs">@s.Count</span>
-                <span class="ciw-streak">@StreakText(s)</span>
-                <span class="ciw-dots" aria-hidden="true">
-                    @foreach (var d in Dots(s)) { <i class="d @d"></i> }
-                </span>
-                <span class="ciw-muted ciw-lastseen">Last seen @Fmt.Ago(s.LastSeen, Time.GetUtcNow())</span>
-            </div>
-            @if (open)
-            {
-                <div class="ciw-series-body">
-                    <dl class="ciw-kv">
-                        <dt>First seen</dt><dd>@Fmt.When(s.FirstSeen)</dd>
-                        <dt>Last seen</dt><dd>@Fmt.When(s.LastSeen)</dd>
-                        <dt>Workflow</dt><dd class="ciw-mono">@s.Key.WorkflowPath</dd>
-                        @if (s.Variants.Count > 0) { <dt>Matrix variants</dt><dd>@string.Join(", ", s.Variants)</dd> }
-                        @if (s.CauseUnknown) { <dt>Cause</dt><dd class="ciw-muted">Same step failing every time; no error line could be extracted from the log.</dd> }
-                        @if (s.LogUnavailable) { <dt>Cause</dt><dd class="ciw-muted">Logs are unavailable (expired, deleted or not readable with this token).</dd> }
-                        @if (s.RawSignature is not null) { <dt>Representative error</dt><dd class="ciw-mono ciw-wrap">@AgentContext.Redact(s.RawSignature)</dd> }
-                    </dl>
-                    <div class="ciw-series-actions">
-                        <CopyContextButton BuildText="() => BuildContext(s)" />
-                    </div>
-                    <h4>Matching runs</h4>
-                    <ul class="ciw-runlist">
-                    @foreach (var o in s.Occurrences.Take(25))
-                    {
-                        <li><button type="button" class="ciw-linkbtn" @onclick="() => OnRunSelected.InvokeAsync(new RunSelection(Repo, o.Run, o.JobName))">
-                            <StatusIcon State="RunState.Failure"/> <span class="ciw-mono">#@o.Run.RunNumber</span>
-                            <span class="ciw-muted">@o.Run.Event · @o.Run.Branch · @Fmt.When(o.Run.SortTime)</span> <span class="ciw-chip">@o.JobName</span></button></li>
-                    }
-                    </ul>
-                    @if (s.Occurrences.Count > 25) { <p class="ciw-muted">Showing newest 25 of @s.Count.</p> }
+        <ul class="ciw-series" aria-label="Recurring failure series">
+        @foreach (var s in Recurring)
+        {
+            var key = Key(s);
+            var open = Prefs.IsExpanded(key);
+            <li class="ciw-series-item @(open ? "open" : "")">
+                <div class="ciw-series-head" tabindex="0" role="button" aria-expanded="@(open ? "true" : "false")" @onclick="() => Prefs.Toggle(key)" @onkeydown="e => OnKey(e, key)" data-series>
+                    <Icon Name="@(open ? "chevron-down" : "chevron-right")" Size="16" Class="ciw-chev" />
+                    <span class="ciw-alert-dot" aria-hidden="true">!</span>
+                    <span class="ciw-series-title" title="@s.Summary">
+                        <strong>@s.JobDisplay</strong>
+                        <span class="ciw-sig">@Describe(s)</span>
+                    </span>
+                    <span class="ciw-count red" title="Matching failed runs">@s.Count</span>
+                    <span class="ciw-series-desc">@StreakText(s)</span>
+                    <span class="ciw-dots" aria-hidden="true">
+                        @foreach (var d in Dots(s)) { <i class="d @d"></i> }
+                    </span>
+                    <span class="ciw-x">@(s.Streak > 1 ? $"{(s.StreakIsLowerBound ? "≥" : "")}{s.Streak}x" : "")</span>
+                    <span class="ciw-muted ciw-lastseen">Last seen @Fmt.Ago(s.LastSeen, Time.GetUtcNow())</span>
                 </div>
-            }
-        </li>
+                @if (open)
+                {
+                    <div class="ciw-series-body">
+                        <dl class="ciw-kv">
+                            <dt>Failed step</dt><dd>@s.StepDisplay</dd>
+                            <dt>First seen</dt><dd>@Fmt.When(s.FirstSeen)</dd>
+                            <dt>Last seen</dt><dd>@Fmt.When(s.LastSeen)</dd>
+                            <dt>Workflow</dt><dd class="ciw-mono">@s.Key.WorkflowPath</dd>
+                            @if (s.Variants.Count > 0) { <dt>Matrix variants</dt><dd>@string.Join(", ", s.Variants)</dd> }
+                            @if (s.CauseUnknown) { <dt>Cause</dt><dd class="ciw-muted">Same step failing every time; no error line could be extracted from the log.</dd> }
+                            @if (s.LogUnavailable) { <dt>Cause</dt><dd class="ciw-muted">Logs are unavailable (expired, deleted or not readable with this token).</dd> }
+                            @if (s.RawSignature is not null) { <dt>Representative error</dt><dd class="ciw-mono ciw-wrap">@AgentContext.Redact(s.RawSignature)</dd> }
+                        </dl>
+                        <div class="ciw-series-actions"><CopyContextButton BuildText="() => BuildContext(s)" /></div>
+                        <h4>Matching runs <span class="ciw-muted">(newest first)</span></h4>
+                        <ul class="ciw-runlist">
+                        @foreach (var o in s.Occurrences.Take(25))
+                        {
+                            <li><button type="button" class="ciw-linkbtn" @onclick="() => OnRunSelected.InvokeAsync(new RunSelection(Repo, o.Run, o.JobName))">
+                                <StatusIcon State="RunState.Failure"/> <span class="ciw-mono">#@o.Run.RunNumber</span>
+                                <span class="ciw-muted">@o.Run.Event · @o.Run.Branch · @Fmt.When(o.Run.SortTime)</span> <span class="ciw-chip">@o.JobName</span></button></li>
+                        }
+                        </ul>
+                        @if (s.Occurrences.Count > 25) { <p class="ciw-muted">Showing newest 25 of @s.Count.</p> }
+                    </div>
+                }
+            </li>
+        }
+        </ul>
     }
-    </ul>
-    @if (Recurring.Count == 0) { <div class="ciw-empty">No recurring failures (the same failure at least twice).</div> }
+    else
+    {
+        <div class="ciw-empty slim">No recurring failures (the same failure at least twice).</div>
+    }
     @if (OneOff.Count > 0)
     {
         <details class="ciw-oneoff">
@@ -77,14 +83,14 @@ else
 }
 
 @code {
-    private IReadOnlyList<FailureSeries> Recurring => Series.Where(s => s.IsRecurring).ToList();
-    private IReadOnlyList<FailureSeries> OneOff => Series.Where(s => !s.IsRecurring).ToList();
-
     [Parameter, EditorRequired] public RepoRef Repo { get; set; }
     [Parameter, EditorRequired] public IReadOnlyList<FailureSeries> Series { get; set; } = [];
     /// <summary>All loaded runs, used to draw the recent-history dots.</summary>
     [Parameter] public IReadOnlyList<WorkflowRunInfo> Runs { get; set; } = [];
     [Parameter] public EventCallback<RunSelection> OnRunSelected { get; set; }
+
+    private IReadOnlyList<FailureSeries> Recurring => Series.Where(s => s.IsRecurring).ToList();
+    private IReadOnlyList<FailureSeries> OneOff => Series.Where(s => !s.IsRecurring).ToList();
 
     private string Key(FailureSeries s) => $"series|{Repo}|{s.Id}";
     private void OnChanged() => InvokeAsync(StateHasChanged);
@@ -94,14 +100,15 @@ else
 
     private static string Describe(FailureSeries s) => s.Key.SignatureKind switch
     {
-        SignatureKind.Known => TrimTo(s.RawSignature ?? s.Key.Signature ?? "", 90),
+        SignatureKind.Known => TrimTo(s.RawSignature ?? s.Key.Signature ?? "", 110),
         SignatureKind.Unknown => "cause unknown",
         _ => "log unavailable",
     };
 
     private static string TrimTo(string v, int n) => v.Length <= n ? v : v[..n] + "…";
+
     private static string StreakText(FailureSeries s) =>
-        s.Streak <= 0 ? $"{s.Count} failures" : $"{(s.StreakIsLowerBound ? "≥" : "")}{s.Streak} in a row";
+        s.Streak >= 2 ? $"{(s.StreakIsLowerBound ? "at least " : "")}{s.Streak} failures in a row" : $"{s.Count} matching failures";
 
     private IEnumerable<string> Dots(FailureSeries s)
     {
@@ -115,8 +122,7 @@ else
         var rep = s.Occurrences[0];
         string? log = null;
         try { log = await Provider.GetJobLogTailAsync(Repo, rep.JobId, FailureAnalyzer.LogBytes, default); } catch (CiProviderException) { }
-        var text = AgentContext.Build(Repo, rep.Run, rep.JobName, rep.StepName.Length == 0 ? null : rep.StepName,
+        return AgentContext.Build(Repo, rep.Run, rep.JobName, rep.StepName.Length == 0 ? null : rep.StepName,
             $"{s.Summary} — {s.Count} matching failed runs, first seen {Fmt.When(s.FirstSeen)}, last seen {Fmt.When(s.LastSeen)}.", log);
-        return text;
     }
 }

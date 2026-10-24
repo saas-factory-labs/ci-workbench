@@ -92,7 +92,10 @@ public static class Fmt
         return $"{(int)t.TotalHours}h {t.Minutes:00}m";
     }
 
-    public static string When(DateTimeOffset at) => at.UtcDateTime.ToString("MMM dd, yyyy HH:mm") + " UTC";
+    public static string When(DateTimeOffset at) => at.UtcDateTime.ToString("MMM dd, yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture) + " UTC";
+
+    /// <summary>Table-friendly timestamp; the column header states the time zone.</summary>
+    public static string WhenShort(DateTimeOffset at) => at.UtcDateTime.ToString("MMM dd, yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
 
     public static string Percent(double? rate) => rate is null ? "—" : $"{Math.Round(rate.Value * 100)}%";
 
