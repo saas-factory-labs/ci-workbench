@@ -36,6 +36,28 @@ dotnet run --project src/CIWorkbench.Web --urls http://localhost:5290
 
 The token is never sent to the browser and never stored in `localStorage`. The standalone host is **single-user and meant for localhost** ([SECURITY.md](SECURITY.md)).
 
+## Two ways to start it
+
+**1. Standalone (default, nothing else required):**
+
+```powershell
+dotnet run --project src/CIWorkbench.Web --urls http://localhost:5290
+```
+
+**2. Through .NET Aspire (optional: adds the Aspire Dashboard with structured logs, traces and metrics):**
+
+```powershell
+dotnet run --project src/CIWorkbench.AppHost
+```
+
+The AppHost starts only the web app and the dashboard. It needs **no** Docker, database, cache or other infrastructure, and demo mode works exactly as it does standalone. To use live GitHub data through the AppHost, store the token as an AppHost user secret (never in a file that is committed):
+
+```powershell
+dotnet user-secrets set "Parameters:github-token" "<fine-grained read-only PAT>" --project src/CIWorkbench.AppHost
+```
+
+Without that secret the web app starts in demo mode. Details, the metrics emitted, and what is deliberately never recorded: [docs/architecture/observability.md](docs/architecture/observability.md).
+
 ## Repository layout
 
 ```text
@@ -44,6 +66,8 @@ src/
   CIWorkbench.GitHub/      read-only GitHub REST provider, credential seam, retry/rate limit/ETag
   CIWorkbench.Components/  reusable Razor class library (workspace, run table, inspector, failure series)
   CIWorkbench.Web/         standalone Blazor Server host (shell, session, onboarding)
+  CIWorkbench.ServiceDefaults/  standard Aspire service defaults (OpenTelemetry, health checks); inert without an OTLP endpoint
+  CIWorkbench.AppHost/     optional Aspire AppHost (dashboard + orchestration, no infrastructure)
 tests/                     Core, GitHub (fake HTTP), Web (bUnit + HTTP smoke)
 docs/                      architecture and development docs
 ```

@@ -1,4 +1,4 @@
-﻿using CIWorkbench.Core.Models;
+using CIWorkbench.Core.Models;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -14,12 +14,14 @@ public static class GitHubServiceCollectionExtensions
         services.Configure<GitHubOptions>(configuration.GetSection(GitHubOptions.Section));
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<RateLimitTracker>();
+        services.TryAddSingleton<GitHubMetrics>();
         services.TryAddSingleton<IGitHubCredentialSource, PatCredentialSource>();
         services.AddTransient<CredentialHandler>();
         services.AddTransient(sp =>
         {
             var o = sp.GetRequiredService<IOptions<GitHubOptions>>().Value;
-            return new RetryHandler(sp.GetRequiredService<RateLimitTracker>(), sp.GetRequiredService<TimeProvider>(), TimeSpan.FromSeconds(o.MaxRateLimitWaitSeconds));
+            return new RetryHandler(sp.GetRequiredService<RateLimitTracker>(), sp.GetRequiredService<TimeProvider>(), TimeSpan.FromSeconds(o.MaxRateLimitWaitSeconds),
+                metrics: sp.GetRequiredService<GitHubMetrics>(), logger: sp.GetService<Microsoft.Extensions.Logging.ILoggerFactory>()?.CreateLogger("CIWorkbench.GitHub.Retry"));
         });
 
         services.AddHttpClient(GitHubCiProvider.ApiClientName, (sp, c) =>
@@ -37,6 +39,9 @@ public static class GitHubServiceCollectionExtensions
         services.AddHttpClient(GitHubCiProvider.BlobClientName, c => c.Timeout = TimeSpan.FromSeconds(60));
 
         services.AddSingleton<GitHubCiProvider>();
+
+        // Readiness only (no GitHub calls). Harmless in hosts that do not map health endpoints.
+        services.AddHealthChecks().AddCheck<GitHubHealthCheck>("github", tags: ["ready"]);
         return services;
     }
 }

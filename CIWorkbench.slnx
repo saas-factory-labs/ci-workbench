@@ -1,8 +1,10 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/CIWorkbench.AppHost/CIWorkbench.AppHost.csproj" />
     <Project Path="src/CIWorkbench.Components/CIWorkbench.Components.csproj" />
     <Project Path="src/CIWorkbench.Core/CIWorkbench.Core.csproj" />
     <Project Path="src/CIWorkbench.GitHub/CIWorkbench.GitHub.csproj" />
+    <Project Path="src/CIWorkbench.ServiceDefaults/CIWorkbench.ServiceDefaults.csproj" />
     <Project Path="src/CIWorkbench.Web/CIWorkbench.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">

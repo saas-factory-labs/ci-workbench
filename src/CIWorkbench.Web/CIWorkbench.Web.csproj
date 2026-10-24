@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
     <UserSecretsId>ci-workbench-web</UserSecretsId>
@@ -7,5 +7,6 @@
     <ProjectReference Include="..\CIWorkbench.Core\CIWorkbench.Core.csproj" />
     <ProjectReference Include="..\CIWorkbench.GitHub\CIWorkbench.GitHub.csproj" />
     <ProjectReference Include="..\CIWorkbench.Components\CIWorkbench.Components.csproj" />
+    <ProjectReference Include="..\CIWorkbench.ServiceDefaults\CIWorkbench.ServiceDefaults.csproj" />
   </ItemGroup>
 </Project>

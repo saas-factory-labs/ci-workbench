@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -5,13 +6,15 @@ using System.Text.Json.Serialization;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using CIWorkbench.Core.Models;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace CIWorkbench.GitHub;
 
 /// <summary>Read-only GitHub REST implementation of <see cref="ICiProvider"/>.</summary>
 public sealed class GitHubCiProvider(
-    IHttpClientFactory httpFactory, IOptions<GitHubOptions> options, RateLimitTracker tracker, IGitHubCredentialSource credentials) : ICiProvider
+    IHttpClientFactory httpFactory, IOptions<GitHubOptions> options, RateLimitTracker tracker, IGitHubCredentialSource credentials,
+    GitHubMetrics? metrics = null, ILogger<GitHubCiProvider>? logger = null) : ICiProvider
 {
     public const string ApiClientName = "github-api";
     public const string BlobClientName = "github-blob";
@@ -30,14 +33,29 @@ public sealed class GitHubCiProvider(
     {
         var url = $"user/repos?per_page={PageSize}&sort=pushed&affiliation=owner,collaborator,organization_member";
         var page = 1; int? estimated = null;
-        while (url is not null)
+        var sw = Stopwatch.StartNew();
+        var outcome = "abandoned";           // the consumer stopped enumerating early (e.g. only the first page was needed)
+        try
         {
-            var (body, next, last) = await GetPageAsync(url, ct);
-            estimated ??= last;
-            var items = Parse<List<RepoDto>>(body)!.Select(r => new RepositoryInfo(new RepoRef(r.Owner.Login, r.Name), r.Description, r.DefaultBranch ?? "main", r.Private, r.HtmlUrl ?? "", r.PushedAt))
-                .Where(r => IsAllowed(r.Ref)).ToList();
-            yield return new RepositoryPage(items, page++, estimated, next is null);
-            url = next;
+            while (url is not null)
+            {
+                (string Body, string? Next, int? LastPage) result;
+                try { result = await GetPageAsync(url, ct, GitHubOperations.RepositoriesList); }
+                catch (OperationCanceledException) { outcome = "cancelled"; throw; }
+                catch (CiProviderException) { outcome = "failed"; throw; }
+                estimated ??= result.LastPage;
+                var items = Parse<List<RepoDto>>(result.Body)!.Select(r => new RepositoryInfo(new RepoRef(r.Owner.Login, r.Name), r.Description, r.DefaultBranch ?? "main", r.Private, r.HtmlUrl ?? "", r.PushedAt))
+                    .Where(r => IsAllowed(r.Ref)).ToList();
+                yield return new RepositoryPage(items, page++, estimated, result.Next is null);
+                url = result.Next;
+            }
+            outcome = "completed";
+        }
+        finally
+        {
+            sw.Stop();
+            metrics?.RecordDiscovery(sw.Elapsed, outcome);
+            if (logger is not null) Log.DiscoveryFinished(logger, outcome, page - 1, sw.ElapsedMilliseconds);
         }
     }
 
@@ -60,29 +78,41 @@ public sealed class GitHubCiProvider(
         EnsureAllowed(repo);
         var all = new List<WorkflowInfo>();
         string? url = $"repos/{repo.Owner}/{repo.Name}/actions/workflows?per_page={PageSize}";
-        while (url is not null)
+        var sw = Stopwatch.StartNew(); var outcome = "failed";
+        try
         {
-            var (body, next, _) = await GetPageAsync(url, ct);
-            all.AddRange(Parse<WorkflowsEnvelope>(body)!.Workflows.Select(w => new WorkflowInfo(w.Id, w.Name, w.Path, w.State == "active", w.HtmlUrl)));
-            url = next;
+            while (url is not null)
+            {
+                var (body, next, _) = await GetPageAsync(url, ct, GitHubOperations.WorkflowsList);
+                all.AddRange(Parse<WorkflowsEnvelope>(body)!.Workflows.Select(w => new WorkflowInfo(w.Id, w.Name, w.Path, w.State == "active", w.HtmlUrl)));
+                url = next;
+            }
+            outcome = "completed";
+            return all;
         }
-        return all;
+        catch (OperationCanceledException) { outcome = "cancelled"; throw; }
+        finally
+        {
+            sw.Stop();
+            metrics?.RecordWorkflowLoad(sw.Elapsed, outcome);
+            if (logger is not null && outcome == "completed") Log.WorkflowsLoaded(logger, all.Count, sw.ElapsedMilliseconds);
+        }
     }
 
     public Task<IReadOnlyList<WorkflowRunInfo>> ListRecentRunsAsync(RepoRef repo, int max, CancellationToken ct) =>
-        ListRunsAsync(repo, $"repos/{repo.Owner}/{repo.Name}/actions/runs", max, ct);
+        ListRunsAsync(repo, $"repos/{repo.Owner}/{repo.Name}/actions/runs", max, GitHubOperations.RunsList, ct);
 
     public Task<IReadOnlyList<WorkflowRunInfo>> ListWorkflowRunsAsync(RepoRef repo, long workflowId, int max, CancellationToken ct) =>
-        ListRunsAsync(repo, $"repos/{repo.Owner}/{repo.Name}/actions/workflows/{workflowId}/runs", max, ct);
+        ListRunsAsync(repo, $"repos/{repo.Owner}/{repo.Name}/actions/workflows/{workflowId}/runs", max, GitHubOperations.WorkflowRunsList, ct);
 
-    private async Task<IReadOnlyList<WorkflowRunInfo>> ListRunsAsync(RepoRef repo, string path, int max, CancellationToken ct)
+    private async Task<IReadOnlyList<WorkflowRunInfo>> ListRunsAsync(RepoRef repo, string path, int max, string operation, CancellationToken ct)
     {
         EnsureAllowed(repo);
         var all = new List<WorkflowRunInfo>();
         string? url = $"{path}?per_page={Math.Min(PageSize, Math.Max(1, max))}";
         while (url is not null && all.Count < max)
         {
-            var (body, next, _) = await GetPageAsync(url, ct);
+            var (body, next, _) = await GetPageAsync(url, ct, operation);
             all.AddRange(Parse<RunsEnvelope>(body)!.WorkflowRuns.Select(MapRun));
             url = next;
         }
@@ -96,7 +126,7 @@ public sealed class GitHubCiProvider(
         string? url = $"repos/{repo.Owner}/{repo.Name}/actions/runs/{runId}/jobs?filter=latest&per_page={PageSize}";
         while (url is not null)
         {
-            var (body, next, _) = await GetPageAsync(url, ct);
+            var (body, next, _) = await GetPageAsync(url, ct, GitHubOperations.JobsList);
             all.AddRange(Parse<JobsEnvelope>(body)!.Jobs.Select(j => new JobInfo(j.Id, j.Name, MapState(j.Status, j.Conclusion), j.StartedAt, j.CompletedAt,
                 (j.Steps ?? []).Select(s => new StepInfo(s.Number, s.Name, MapState(s.Status, s.Conclusion))).ToList(), j.HtmlUrl ?? "")));
             url = next;
@@ -110,11 +140,12 @@ public sealed class GitHubCiProvider(
     {
         EnsureAllowed(repo);
         using var req = new HttpRequestMessage(HttpMethod.Get, $"repos/{repo.Owner}/{repo.Name}/actions/jobs/{jobId}/logs");
-        using var res = await Api.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        using var res = await SendApiAsync(Api, req, GitHubOperations.JobLogGet, HttpCompletionOption.ResponseHeadersRead, ct, notFoundIsExpected: true);
         // The API answers 302 to a short-lived blob URL. Follow it WITHOUT credentials (separate client, no auth handler).
         if (res.StatusCode is HttpStatusCode.Redirect or HttpStatusCode.Found && res.Headers.Location is { } loc)
         {
-            using var blob = await httpFactory.CreateClient(BlobClientName).GetAsync(loc, HttpCompletionOption.ResponseHeadersRead, ct);
+            using var blobReq = new HttpRequestMessage(HttpMethod.Get, loc);
+            using var blob = await SendApiAsync(httpFactory.CreateClient(BlobClientName), blobReq, GitHubOperations.JobLogBlob, HttpCompletionOption.ResponseHeadersRead, ct, notFoundIsExpected: true);
             if (!blob.IsSuccessStatusCode) return null;
             return await ReadTailAsync(await blob.Content.ReadAsStreamAsync(ct), maxBytes, ct);
         }
@@ -142,7 +173,7 @@ public sealed class GitHubCiProvider(
         EnsureAllowed(repo);
         using var req = new HttpRequestMessage(HttpMethod.Get, $"repos/{repo.Owner}/{repo.Name}/contents/{string.Join('/', path.Split('/').Select(Uri.EscapeDataString))}");
         req.Headers.Accept.ParseAdd("application/vnd.github.raw+json");
-        using var res = await Api.SendAsync(req, ct);
+        using var res = await SendApiAsync(Api, req, GitHubOperations.FileGet, HttpCompletionOption.ResponseContentRead, ct, notFoundIsExpected: true);
         if (res.StatusCode == HttpStatusCode.NotFound) return null;
         if (!res.IsSuccessStatusCode) throw Describe(res, path);
         return await res.Content.ReadAsStringAsync(ct);
@@ -154,7 +185,7 @@ public sealed class GitHubCiProvider(
     {
         try
         {
-            var (body, _, _) = await GetPageAsync("rate_limit", ct, useEtag: false);
+            var (body, _, _) = await GetPageAsync("rate_limit", ct, GitHubOperations.RateLimitGet, useEtag: false);
             var core = Parse<RateEnvelope>(body)!.Resources.Core;
             return new RateLimitInfo(core.Limit, core.Remaining, DateTimeOffset.FromUnixTimeSeconds(core.Reset));
         }
@@ -176,7 +207,7 @@ public sealed class GitHubCiProvider(
 
         checks.Add(await Run("Authentication", async () =>
         {
-            var (body, _, _) = await GetPageAsync("user", ct, useEtag: false);
+            var (body, _, _) = await GetPageAsync("user", ct, GitHubOperations.UserGet, useEtag: false);
             account = Parse<UserDto>(body)!.Login; return $"Authenticated as {account}.";
         }, "Check that the token is valid and not expired."));
 
@@ -210,7 +241,7 @@ public sealed class GitHubCiProvider(
     // ------------------------------------------------------------------ plumbing
 
     /// <summary>GET with ETag revalidation. Returns body, next-page URL and the estimated last page.</summary>
-    private async Task<(string Body, string? Next, int? LastPage)> GetPageAsync(string url, CancellationToken ct, bool useEtag = true)
+    private async Task<(string Body, string? Next, int? LastPage)> GetPageAsync(string url, CancellationToken ct, string operation, bool useEtag = true)
     {
         ct.ThrowIfCancellationRequested();
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
@@ -218,17 +249,64 @@ public sealed class GitHubCiProvider(
         (string ETag, string Body, string? Next, int? Last)? cached = useEtag && _etags.TryGetValue(cacheKey, out var c) ? c : null;
         if (cached is { } hit) req.Headers.TryAddWithoutValidation("If-None-Match", hit.ETag);
         HttpResponseMessage res;
-        try { res = await Api.SendAsync(req, ct); }
+        try { res = await SendApiAsync(Api, req, operation, HttpCompletionOption.ResponseContentRead, ct); }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested) { throw new CiProviderException("GitHub did not respond in time.", null); }
         catch (HttpRequestException ex) { throw new CiProviderException($"Could not reach GitHub: {ex.Message}", null, ex); }
         using (res)
         {
             var (next, last) = ParseLink(res);
-            if (res.StatusCode == HttpStatusCode.NotModified && cached is { } notModified) return (notModified.Body, notModified.Next, notModified.Last);
+            if (res.StatusCode == HttpStatusCode.NotModified && cached is { } notModified)
+            {
+                metrics?.RecordCache(operation, hit: true);
+                return (notModified.Body, notModified.Next, notModified.Last);
+            }
+            if (useEtag) metrics?.RecordCache(operation, hit: false);
             if (!res.IsSuccessStatusCode) throw Describe(res, url);
             var body = await res.Content.ReadAsStringAsync(ct);
             if (useEtag && res.Headers.ETag is { } e) _etags[cacheKey] = (e.ToString(), body, next, last);
             return (body, next, last);
+        }
+    }
+
+    /// <summary>
+    /// Single instrumented send path: one low-cardinality span and duration/error metrics per logical request.
+    /// URLs, repository names, headers and bodies are deliberately never attached to telemetry or logs.
+    /// </summary>
+    private async Task<HttpResponseMessage> SendApiAsync(HttpClient client, HttpRequestMessage req, string operation, HttpCompletionOption completion, CancellationToken ct, bool notFoundIsExpected = false)
+    {
+        CiWorkbenchTelemetry.Suppress(req);
+        using var activity = CiWorkbenchTelemetry.Source.StartActivity("github.request", ActivityKind.Client);
+        activity?.SetTag("github.operation", operation);
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var res = await client.SendAsync(req, completion, ct);
+            sw.Stop();
+            var code = (int)res.StatusCode;
+            metrics?.RecordRequest(operation, $"{code / 100}xx", sw.Elapsed);
+            activity?.SetTag("http.response.status_code", code);
+            var expectedMissing = notFoundIsExpected && res.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone;
+            if (code >= 400 && !expectedMissing)
+            {
+                var errorType = GitHubMetrics.ClassifyError(res, tracker);
+                metrics?.RecordError(operation, errorType);
+                activity?.SetTag("github.error_type", errorType);
+                activity?.SetStatus(ActivityStatusCode.Error);
+                if (logger is not null) Log.RequestFailed(logger, operation, errorType, code);
+            }
+            return res;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex) when (ex is TaskCanceledException or HttpRequestException)
+        {
+            sw.Stop();
+            var errorType = ex is TaskCanceledException ? "timeout" : "network";
+            metrics?.RecordRequest(operation, "error", sw.Elapsed);
+            metrics?.RecordError(operation, errorType);
+            activity?.SetTag("github.error_type", errorType);
+            activity?.SetStatus(ActivityStatusCode.Error);
+            if (logger is not null) Log.RequestAborted(logger, operation, errorType);   // the exception message (which may name a host/URL) is intentionally not logged
+            throw;
         }
     }
 

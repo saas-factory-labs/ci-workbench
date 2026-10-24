@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Headers;
 using CIWorkbench.Core.Models;
 
@@ -23,7 +23,8 @@ public sealed class CredentialHandler(IGitHubCredentialSource source, Microsoft.
 /// Retries GETs on primary/secondary rate limits (waiting at most <c>MaxWait</c>), 429 and transient 5xx with exponential backoff.
 /// 401, permission-403 and 404 are never retried.
 /// </summary>
-public sealed class RetryHandler(RateLimitTracker tracker, TimeProvider time, TimeSpan maxWait, int maxRetries = 3, Func<TimeSpan, CancellationToken, Task>? delay = null) : DelegatingHandler
+public sealed class RetryHandler(RateLimitTracker tracker, TimeProvider time, TimeSpan maxWait, int maxRetries = 3, Func<TimeSpan, CancellationToken, Task>? delay = null,
+    GitHubMetrics? metrics = null, Microsoft.Extensions.Logging.ILogger? logger = null) : DelegatingHandler
 {
     private readonly Func<TimeSpan, CancellationToken, Task> _delay = delay ?? ((t, ct) => Task.Delay(t, time, ct));
     public TimeSpan BaseBackoff { get; init; } = TimeSpan.FromMilliseconds(400);
@@ -40,6 +41,8 @@ public sealed class RetryHandler(RateLimitTracker tracker, TimeProvider time, Ti
             }
             catch (HttpRequestException) when (attempt < maxRetries)
             {
+                metrics?.RecordRetry("network");
+                if (logger is not null) Log.Retrying(logger, "network", attempt + 1);
                 await _delay(Backoff(attempt), ct);
                 continue;
             }
@@ -49,6 +52,8 @@ public sealed class RetryHandler(RateLimitTracker tracker, TimeProvider time, Ti
             if (wait is { } w && w <= maxWait && attempt < maxRetries)
             {
                 tracker.SetThrottled(time.GetUtcNow() + w);
+                metrics?.RecordRetry("rate_limit");
+                if (logger is not null) Log.RateLimitWait(logger, (int)Math.Ceiling(w.TotalSeconds), attempt + 1);
                 response.Dispose();
                 await _delay(w, ct);
                 tracker.ClearThrottle();
@@ -57,6 +62,8 @@ public sealed class RetryHandler(RateLimitTracker tracker, TimeProvider time, Ti
             if (wait is { } over) tracker.SetThrottled(time.GetUtcNow() + over); // surfaced to caller as a friendly error
             if (response.StatusCode is HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout && attempt < maxRetries)
             {
+                metrics?.RecordRetry("server_error");
+                if (logger is not null) Log.Retrying(logger, "server_error", attempt + 1);
                 response.Dispose();
                 await _delay(Backoff(attempt), ct);
                 continue;
@@ -86,6 +93,7 @@ public sealed class RetryHandler(RateLimitTracker tracker, TimeProvider time, Ti
     {
         var c = new HttpRequestMessage(src.Method, src.RequestUri) { Version = src.Version };
         foreach (var h in src.Headers) c.Headers.TryAddWithoutValidation(h.Key, h.Value);
+        foreach (var o in (IDictionary<string, object?>)src.Options) ((IDictionary<string, object?>)c.Options)[o.Key] = o.Value;   // keeps the telemetry-suppression flag on every attempt
         return c;
     }
 }

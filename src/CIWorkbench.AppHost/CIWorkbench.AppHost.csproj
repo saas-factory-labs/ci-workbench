@@ -1,0 +1,14 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.6.4">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UserSecretsId>ci-workbench-apphost</UserSecretsId>
+    <!-- The Aspire SDK manages its own package versions. -->
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <IsPackable>false</IsPackable>
+    <!-- The AppHost runs the dashboard and orchestrator from NuGet packages; the optional Aspire CLI bundle is not required. -->
+    <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CIWorkbench.Web\CIWorkbench.Web.csproj" />
+  </ItemGroup>
+</Project>
