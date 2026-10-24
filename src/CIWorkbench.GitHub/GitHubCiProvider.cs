@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -17,7 +17,7 @@ public sealed class GitHubCiProvider(
     public const string BlobClientName = "github-blob";
     private const int PageSize = 100;
 
-    private readonly ConcurrentDictionary<string, (string ETag, string Body)> _etags = new();
+    private readonly ConcurrentDictionary<string, (string ETag, string Body, string? Next, int? Last)> _etags = new();
 
     public string Name => "GitHub";
     public bool IsDemo => false;
@@ -41,6 +41,12 @@ public sealed class GitHubCiProvider(
         }
     }
 
+    /// <summary>The allowlist is enforced on every repository-scoped call, not just discovery.</summary>
+    private void EnsureAllowed(RepoRef r)
+    {
+        if (!IsAllowed(r)) throw new CiProviderException($"{r} is not in the configured allowlist (GitHub:AllowedRepositories).", 403);
+    }
+
     private bool IsAllowed(RepoRef r)
     {
         var allow = options.Value.AllowedRepositories;
@@ -51,6 +57,7 @@ public sealed class GitHubCiProvider(
 
     public async Task<IReadOnlyList<WorkflowInfo>> ListWorkflowsAsync(RepoRef repo, CancellationToken ct)
     {
+        EnsureAllowed(repo);
         var all = new List<WorkflowInfo>();
         string? url = $"repos/{repo.Owner}/{repo.Name}/actions/workflows?per_page={PageSize}";
         while (url is not null)
@@ -63,13 +70,14 @@ public sealed class GitHubCiProvider(
     }
 
     public Task<IReadOnlyList<WorkflowRunInfo>> ListRecentRunsAsync(RepoRef repo, int max, CancellationToken ct) =>
-        ListRunsAsync($"repos/{repo.Owner}/{repo.Name}/actions/runs", max, ct);
+        ListRunsAsync(repo, $"repos/{repo.Owner}/{repo.Name}/actions/runs", max, ct);
 
     public Task<IReadOnlyList<WorkflowRunInfo>> ListWorkflowRunsAsync(RepoRef repo, long workflowId, int max, CancellationToken ct) =>
-        ListRunsAsync($"repos/{repo.Owner}/{repo.Name}/actions/workflows/{workflowId}/runs", max, ct);
+        ListRunsAsync(repo, $"repos/{repo.Owner}/{repo.Name}/actions/workflows/{workflowId}/runs", max, ct);
 
-    private async Task<IReadOnlyList<WorkflowRunInfo>> ListRunsAsync(string path, int max, CancellationToken ct)
+    private async Task<IReadOnlyList<WorkflowRunInfo>> ListRunsAsync(RepoRef repo, string path, int max, CancellationToken ct)
     {
+        EnsureAllowed(repo);
         var all = new List<WorkflowRunInfo>();
         string? url = $"{path}?per_page={Math.Min(PageSize, Math.Max(1, max))}";
         while (url is not null && all.Count < max)
@@ -83,6 +91,7 @@ public sealed class GitHubCiProvider(
 
     public async Task<IReadOnlyList<JobInfo>> ListJobsAsync(RepoRef repo, long runId, CancellationToken ct)
     {
+        EnsureAllowed(repo);
         var all = new List<JobInfo>();
         string? url = $"repos/{repo.Owner}/{repo.Name}/actions/runs/{runId}/jobs?filter=latest&per_page={PageSize}";
         while (url is not null)
@@ -99,6 +108,7 @@ public sealed class GitHubCiProvider(
 
     public async Task<string?> GetJobLogTailAsync(RepoRef repo, long jobId, int maxBytes, CancellationToken ct)
     {
+        EnsureAllowed(repo);
         using var req = new HttpRequestMessage(HttpMethod.Get, $"repos/{repo.Owner}/{repo.Name}/actions/jobs/{jobId}/logs");
         using var res = await Api.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
         // The API answers 302 to a short-lived blob URL. Follow it WITHOUT credentials (separate client, no auth handler).
@@ -129,6 +139,7 @@ public sealed class GitHubCiProvider(
 
     public async Task<string?> GetFileAsync(RepoRef repo, string path, CancellationToken ct)
     {
+        EnsureAllowed(repo);
         using var req = new HttpRequestMessage(HttpMethod.Get, $"repos/{repo.Owner}/{repo.Name}/contents/{string.Join('/', path.Split('/').Select(Uri.EscapeDataString))}");
         req.Headers.Accept.ParseAdd("application/vnd.github.raw+json");
         using var res = await Api.SendAsync(req, ct);
@@ -204,7 +215,7 @@ public sealed class GitHubCiProvider(
         ct.ThrowIfCancellationRequested();
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         var cacheKey = credentials.Identity + "|" + url;
-        (string ETag, string Body)? cached = useEtag && _etags.TryGetValue(cacheKey, out var c) ? c : null;
+        (string ETag, string Body, string? Next, int? Last)? cached = useEtag && _etags.TryGetValue(cacheKey, out var c) ? c : null;
         if (cached is { } hit) req.Headers.TryAddWithoutValidation("If-None-Match", hit.ETag);
         HttpResponseMessage res;
         try { res = await Api.SendAsync(req, ct); }
@@ -213,10 +224,10 @@ public sealed class GitHubCiProvider(
         using (res)
         {
             var (next, last) = ParseLink(res);
-            if (res.StatusCode == HttpStatusCode.NotModified && cached is { } notModified) return (notModified.Body, next, last);
+            if (res.StatusCode == HttpStatusCode.NotModified && cached is { } notModified) return (notModified.Body, notModified.Next, notModified.Last);
             if (!res.IsSuccessStatusCode) throw Describe(res, url);
             var body = await res.Content.ReadAsStringAsync(ct);
-            if (useEtag && res.Headers.ETag is { } e) _etags[cacheKey] = (e.ToString(), body);
+            if (useEtag && res.Headers.ETag is { } e) _etags[cacheKey] = (e.ToString(), body, next, last);
             return (body, next, last);
         }
     }

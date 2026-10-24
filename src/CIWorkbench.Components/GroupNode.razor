@@ -1,5 +1,5 @@
 <div class="ciw-group depth-@Depth" data-group="@Group.Path">
-    <div class="ciw-group-head" tabindex="0" role="button" aria-expanded="@(Open).ToString().ToLowerInvariant()" @onclick="() => Ws.ToggleGroup(Group)" @onkeydown="OnKey">
+    <div class="ciw-group-head" tabindex="0" role="button" aria-expanded="@(Open ? "true" : "false")" @onclick="() => Ws.ToggleGroup(Group)" @onkeydown="OnKey">
         <span class="ciw-chev @(Open ? "open" : "")" aria-hidden="true">›</span>
         <span class="ciw-group-name">@Group.Name</span>
         <span class="ciw-count" title="Workflows in this group">@Ws.VisibleCount(Group)</span>

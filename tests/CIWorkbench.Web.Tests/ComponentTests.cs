@@ -49,7 +49,9 @@ public class ComponentTests : BunitContext
         var open = prefs.ExpandedKeys.Count(k => k.StartsWith("group|"));
         cut.Render();
         Assert.Equal(open, prefs.ExpandedKeys.Count(k => k.StartsWith("group|")));
-        Assert.Contains("true", cut.Find("[data-group] .ciw-group-head").GetAttribute("aria-expanded"), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("true", cut.Find("[data-group] .ciw-group-head").GetAttribute("aria-expanded"));
+        cut.Find("[data-group] .ciw-group-head").Click();
+        Assert.Equal("false", cut.Find("[data-group] .ciw-group-head").GetAttribute("aria-expanded"));
     }
 
     [Fact]
@@ -71,7 +73,8 @@ public class ComponentTests : BunitContext
         RunSelection? picked = null;
         var cut = await RenderWorkspace(DemoCiProvider.ActorRepo, p => p.Add(c => c.OnRunSelected, EventCallback.Factory.Create<RunSelection>(this, s => picked = s)));
         cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-testid=failure-banner]")));
-        cut.WaitForAssertion(() => Assert.True(cut.FindAll("[data-series]").Count >= 3));
+        cut.WaitForAssertion(() => Assert.Equal(2, cut.FindAll("[data-series]").Count));
+        Assert.Single(cut.FindAll("[data-oneoff]"));
         cut.Find("[data-series]").Click();
         Assert.NotEmpty(cut.FindAll(".ciw-series-body"));
         cut.Find("tr.ciw-row").Click();
@@ -101,6 +104,7 @@ public class ComponentTests : BunitContext
     [Fact]
     public void Density_toggle_switches_preferences_without_reload()
     {
+        Assert.Equal("true", Render<DensityToggle>().FindAll("button")[0].GetAttribute("aria-pressed"));
         var prefs = Services.GetRequiredService<UiPreferences>();
         var cut = Render<DensityToggle>();
         cut.FindAll("button").First(b => b.TextContent == "Compact").Click();
@@ -112,7 +116,7 @@ public class ComponentTests : BunitContext
     public async Task Failures_view_lists_series_per_workflow()
     {
         var cut = Render<RepositoryWorkspace>(p => { p.Add(c => c.Repo, DemoCiProvider.ActorRepo); p.Add(c => c.View, WorkspaceView.Failures); p.Add(c => c.AutoRefresh, false); });
-        await cut.WaitForAssertionAsync(() => Assert.True(cut.FindAll("[data-series]").Count >= 3), TimeSpan.FromSeconds(10));
+        await cut.WaitForAssertionAsync(() => Assert.Equal(2, cut.FindAll("[data-series]").Count), TimeSpan.FromSeconds(10));
     }
 
     [Fact]

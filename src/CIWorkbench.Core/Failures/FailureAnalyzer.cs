@@ -1,8 +1,12 @@
-﻿using CIWorkbench.Core.Models;
+using CIWorkbench.Core.Models;
 
 namespace CIWorkbench.Core.Failures;
 
-public sealed record FailureAnalysis(IReadOnlyList<FailureSeries> Series, int RunsInspected, int RunsAvailable, bool Truncated);
+public sealed record FailureAnalysis(IReadOnlyList<FailureSeries> Series, int RunsInspected, int RunsAvailable, bool Truncated)
+{
+    public IReadOnlyList<FailureSeries> Recurring => Series.Where(s => s.IsRecurring).ToList();
+    public IReadOnlyList<FailureSeries> OneOff => Series.Where(s => !s.IsRecurring).ToList();
+}
 
 /// <summary>Lazy, bounded analysis: inspects jobs/logs for at most <c>maxRunsToInspect</c> newest failed runs.</summary>
 public sealed class FailureAnalyzer(ICiProvider provider)

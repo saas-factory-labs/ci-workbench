@@ -7,7 +7,7 @@
 1. `dotnet run --project src/CIWorkbench.Web --urls http://localhost:5290`
 2. Overview: note the **Demo data** banner and progressive discovery.
 3. Open `example-org/platform-monorepo`: 39 workflows in groups (config + YAML comments). Filter **Failed**, search "container", expand all, toggle **Compact**.
-4. Open `example-org/review-scraper-actor`: banner shows recurring failures; expand the *deep-paging* series (15 consecutive) and the *scenario-tests* browser series. The one-off `AssertionError` in the same job is deliberately **not** merged.
+4. Open `example-org/review-scraper-actor`: banner shows recurring failures; expand the *deep-paging* series (shown as `≥12 in a row`: analysis is bounded to the newest 12 failed runs per workflow, with "Inspected 12 of 15" shown) and the *scenario-tests* browser series. The single `AssertionError` in the same job is deliberately **not** merged and appears under "One-off failures" (a series needs at least 2 matching failures).
 5. Click a run: the **Run Inspector** opens, failed jobs first; *Load log excerpt* fetches on demand; *Copy context for coding agent*.
 6. Settings: permission checks and data source.
 

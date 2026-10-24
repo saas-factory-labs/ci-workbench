@@ -2,8 +2,8 @@
 @inject UiPreferences Prefs
 
 <div class="ciw-segmented" role="group" aria-label="Row density">
-    <button type="button" class="@Cls(Density.Comfortable)" aria-pressed="@((Prefs.Density == Density.Comfortable)).ToString().ToLowerInvariant()" @onclick="() => Prefs.Density = Density.Comfortable">Comfortable</button>
-    <button type="button" class="@Cls(Density.Compact)" aria-pressed="@((Prefs.Density == Density.Compact)).ToString().ToLowerInvariant()" @onclick="() => Prefs.Density = Density.Compact">Compact</button>
+    <button type="button" class="@Cls(Density.Comfortable)" aria-pressed="@((Prefs.Density == Density.Comfortable) ? "true" : "false")" @onclick="() => Prefs.Density = Density.Comfortable">Comfortable</button>
+    <button type="button" class="@Cls(Density.Compact)" aria-pressed="@((Prefs.Density == Density.Compact) ? "true" : "false")" @onclick="() => Prefs.Density = Density.Compact">Compact</button>
 </div>
 
 @code {

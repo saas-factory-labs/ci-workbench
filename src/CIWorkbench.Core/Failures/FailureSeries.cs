@@ -1,4 +1,4 @@
-﻿using CIWorkbench.Core.Models;
+using CIWorkbench.Core.Models;
 
 namespace CIWorkbench.Core.Failures;
 
@@ -18,6 +18,9 @@ public sealed class FailureSeries
     public required IReadOnlyList<FailureObservation> Occurrences { get; init; }
     public IReadOnlyList<string> Variants { get; init; } = [];
     public int Count => Occurrences.Count;
+    /// <summary>A single failure is not a series worth alerting on; recurring means it matched at least twice.</summary>
+    public bool IsRecurring => Count >= 2;
+    public string Branch => Occurrences.OrderByDescending(o => o.Run.SortTime).First().Run.Branch;
     public DateTimeOffset FirstSeen => Occurrences.Min(o => o.Run.SortTime);
     public DateTimeOffset LastSeen => Occurrences.Max(o => o.Run.SortTime);
     public int Streak { get; init; }
@@ -98,7 +101,9 @@ public static class FailureSeriesBuilder
         IReadOnlySet<long> inspected, bool windowTruncated)
     {
         var hitRuns = occurrences.Select(o => o.Run.Id).ToHashSet();
-        var ordered = allRuns.Where(r => r.WorkflowPath == key.WorkflowPath).OrderByDescending(r => r.SortTime).ToList();
+        // Streaks are per branch: a feature-branch run must not break (or extend) a main-branch streak.
+        var branch = occurrences.OrderByDescending(o => o.Run.SortTime).First().Run.Branch;
+        var ordered = allRuns.Where(r => r.WorkflowPath == key.WorkflowPath && r.Branch == branch).OrderByDescending(r => r.SortTime).ToList();
         var streak = 0;
         foreach (var run in ordered)
         {

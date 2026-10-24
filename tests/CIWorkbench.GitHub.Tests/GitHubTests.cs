@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Text;
 using CIWorkbench.Core.Models;
 using CIWorkbench.GitHub;
@@ -264,6 +264,43 @@ public class CachingAndLogTests
 
     [Fact] public void Credential_to_string_never_contains_the_token() =>
         Assert.DoesNotContain("ghp_", new GitHubCredential("ghp_secret", CredentialKind.PersonalAccessToken).ToString());
+}
+
+public class AllowlistAndPagingTests
+{
+    [Fact] public async Task Allowlist_is_enforced_on_every_repo_scoped_call_not_just_discovery()
+    {
+        var options = Options.Create(new GitHubOptions { Token = "ghp_x_not_real_0000000000000000000", AllowedRepositories = ["example-org/allowed"] });
+        var fake = new Fake(_ => H.Json("{\"workflows\":[]}"));
+        var p = new GitHubCiProvider(new Factory(new HttpClient(fake) { BaseAddress = new Uri("https://api.github.com/") }, new HttpClient()), options, new RateLimitTracker(), new PatCredentialSource(options));
+        var other = new RepoRef("example-org", "secret");
+        await Assert.ThrowsAsync<CiProviderException>(() => p.ListWorkflowsAsync(other, default));
+        await Assert.ThrowsAsync<CiProviderException>(() => p.ListRecentRunsAsync(other, 10, default));
+        await Assert.ThrowsAsync<CiProviderException>(() => p.ListWorkflowRunsAsync(other, 1, 10, default));
+        await Assert.ThrowsAsync<CiProviderException>(() => p.ListJobsAsync(other, 1, default));
+        await Assert.ThrowsAsync<CiProviderException>(() => p.GetJobLogTailAsync(other, 1, 100, default));
+        await Assert.ThrowsAsync<CiProviderException>(() => p.GetFileAsync(other, "x", default));
+        Assert.Empty(fake.Calls);                                   // blocked before any network call
+        await p.ListWorkflowsAsync(new RepoRef("example-org", "allowed"), default);
+        Assert.Single(fake.Calls);
+    }
+
+    [Fact] public async Task Not_modified_response_keeps_pagination_from_the_cached_response()
+    {
+        var calls = 0;
+        var (p, _, _, _, _) = H.Build(req =>
+        {
+            var page2 = req.RequestUri!.Query.Contains("page=2");
+            calls++;
+            if (calls > 2) return new HttpResponseMessage(HttpStatusCode.NotModified);          // revalidation of page 1 and page 2: no Link header
+            var r = H.Json(page2 ? "{\"workflows\":[{\"id\":2,\"name\":\"B\",\"path\":\"b.yml\",\"state\":\"active\"}]}" : "{\"workflows\":[{\"id\":1,\"name\":\"A\",\"path\":\"a.yml\",\"state\":\"active\"}]}");
+            r.Headers.ETag = new(page2 ? "\"p2\"" : "\"p1\"");
+            if (!page2) r.Headers.Add("Link", "<https://api.github.com/repos/example-org/demo/actions/workflows?per_page=100&page=2>; rel=\"next\"");
+            return r;
+        });
+        Assert.Equal(2, (await p.ListWorkflowsAsync(H.Repo, default)).Count);
+        Assert.Equal(2, (await p.ListWorkflowsAsync(H.Repo, default)).Count);                // second pass fully served by 304s
+    }
 }
 
 public class ConnectionTests

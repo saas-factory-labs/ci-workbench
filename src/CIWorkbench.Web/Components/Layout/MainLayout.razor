@@ -72,7 +72,7 @@
 
     <aside class="inspector-pane" aria-label="Run inspector panel" data-testid="inspector-pane">
         <div class="insp-bar">
-            <button type="button" class="ciw-iconbtn" @onclick="() => Prefs.InspectorOpen = !Prefs.InspectorOpen" aria-expanded="@(Prefs.InspectorOpen).ToString().ToLowerInvariant()" aria-controls="inspector-body" data-testid="inspector-toggle"
+            <button type="button" class="ciw-iconbtn" @onclick="() => Prefs.InspectorOpen = !Prefs.InspectorOpen" aria-expanded="@(Prefs.InspectorOpen ? "true" : "false")" aria-controls="inspector-body" data-testid="inspector-toggle"
                     title="@(Prefs.InspectorOpen ? "Collapse inspector" : "Open inspector")">
                 @(Prefs.InspectorOpen ? "›" : "‹")<span class="insp-label">Inspector</span>
             </button>

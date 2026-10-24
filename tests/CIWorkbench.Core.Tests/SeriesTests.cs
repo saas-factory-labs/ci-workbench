@@ -1,4 +1,4 @@
-﻿using CIWorkbench.Core.Failures;
+using CIWorkbench.Core.Failures;
 using CIWorkbench.Core.Models;
 
 namespace CIWorkbench.Core.Tests;
@@ -109,6 +109,24 @@ public class SeriesTests
         Assert.Equal(1, s.Streak); Assert.True(s.StreakIsLowerBound);
     }
 
+    [Fact] public void Feature_branch_runs_do_not_break_or_extend_a_main_branch_streak()
+    {
+        var runs = new[]
+        {
+            T.Run(4, Wf, RunState.Failure, 1), T.Run(3, Wf, RunState.Success, 2, branch: "feat/x"),
+            T.Run(2, Wf, RunState.Failure, 3), T.Run(1, Wf, RunState.Failure, 4, branch: "feat/x"),
+        };
+        var s = Build([Obs(runs[0], "a", "s", Sig("x")), Obs(runs[2], "a", "s", Sig("x"))], runs).Single();
+        Assert.Equal(2, s.Streak);
+    }
+
+    [Fact] public void Single_failure_is_not_recurring_and_two_are()
+    {
+        var r1 = T.Run(1, Wf, RunState.Failure, 1); var r2 = T.Run(2, Wf, RunState.Failure, 2);
+        Assert.False(Build([Obs(r1, "a", "s", Sig("x"))], [r1]).Single().IsRecurring);
+        Assert.True(Build([Obs(r1, "a", "s", Sig("x")), Obs(r2, "a", "s", Sig("x"))], [r1, r2]).Single().IsRecurring);
+    }
+
     [Fact] public void Scheduled_and_push_runs_in_the_same_workflow_count_together()
     {
         var runs = new[] { T.Run(2, Wf, RunState.Failure, 1, ev: "schedule"), T.Run(1, Wf, RunState.Failure, 2, ev: "push") };
@@ -174,6 +192,8 @@ public class DemoFixtureTests
         Assert.Equal(10, browser.Count); Assert.Equal(9, browser.Streak);
         Assert.Equal(1, assertion.Count);
         Assert.Equal(3, analysis.Series.Count);
+        Assert.Equal(2, analysis.Recurring.Count);                 // the single AssertionError is a one-off, not a recurring series
+        Assert.False(assertion.IsRecurring);
     }
 }
 

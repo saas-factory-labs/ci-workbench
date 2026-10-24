@@ -3,19 +3,19 @@
 @inject TimeProvider Time
 @implements IDisposable
 
-@if (Series.Count == 0)
+@if (Recurring.Count == 0 && OneOff.Count == 0)
 {
     <div class="ciw-empty">No recurring failure series in the inspected runs.</div>
 }
 else
 {
     <ul class="ciw-series" aria-label="Recurring failure series">
-    @foreach (var s in Series)
+    @foreach (var s in Recurring)
     {
         var key = Key(s);
         var open = Prefs.IsExpanded(key);
         <li class="ciw-series-item">
-            <div class="ciw-series-head" tabindex="0" role="button" aria-expanded="@(open).ToString().ToLowerInvariant()" @onclick="() => Prefs.Toggle(key)" @onkeydown="e => OnKey(e, key)" data-series>
+            <div class="ciw-series-head" tabindex="0" role="button" aria-expanded="@(open ? "true" : "false")" @onclick="() => Prefs.Toggle(key)" @onkeydown="e => OnKey(e, key)" data-series>
                 <span class="ciw-chev @(open ? "open" : "")" aria-hidden="true">›</span>
                 <span class="ciw-alert-dot" aria-hidden="true">!</span>
                 <span class="ciw-series-title" title="@s.Summary">
@@ -59,9 +59,27 @@ else
         </li>
     }
     </ul>
+    @if (Recurring.Count == 0) { <div class="ciw-empty">No recurring failures (the same failure at least twice).</div> }
+    @if (OneOff.Count > 0)
+    {
+        <details class="ciw-oneoff">
+            <summary>One-off failures <span class="ciw-count">@OneOff.Count</span> <span class="ciw-muted">seen once; not treated as recurring</span></summary>
+            <ul class="ciw-runlist">
+            @foreach (var s in OneOff)
+            {
+                var o = s.Occurrences[0];
+                <li data-oneoff><button type="button" class="ciw-linkbtn" @onclick="() => OnRunSelected.InvokeAsync(new RunSelection(Repo, o.Run, o.JobName))">
+                    <StatusIcon State="RunState.Failure"/> <strong>@s.JobDisplay</strong> <span class="ciw-muted">›</span> @s.StepDisplay <span class="ciw-muted">@Describe(s)</span></button></li>
+            }
+            </ul>
+        </details>
+    }
 }
 
 @code {
+    private IReadOnlyList<FailureSeries> Recurring => Series.Where(s => s.IsRecurring).ToList();
+    private IReadOnlyList<FailureSeries> OneOff => Series.Where(s => !s.IsRecurring).ToList();
+
     [Parameter, EditorRequired] public RepoRef Repo { get; set; }
     [Parameter, EditorRequired] public IReadOnlyList<FailureSeries> Series { get; set; } = [];
     /// <summary>All loaded runs, used to draw the recent-history dots.</summary>
@@ -88,7 +106,7 @@ else
     private IEnumerable<string> Dots(FailureSeries s)
     {
         var hits = s.Occurrences.Select(o => o.Run.Id).ToHashSet();
-        return Runs.Where(r => r.WorkflowPath == s.Key.WorkflowPath && r.State.IsCompleted() && r.State is not (RunState.Cancelled or RunState.Skipped))
+        return Runs.Where(r => r.WorkflowPath == s.Key.WorkflowPath && r.Branch == s.Branch && r.State.IsCompleted() && r.State is not (RunState.Cancelled or RunState.Skipped))
             .OrderByDescending(r => r.SortTime).Take(7).Select(r => hits.Contains(r.Id) ? "bad" : r.State == RunState.Success ? "good" : "other").ToList();
     }
 

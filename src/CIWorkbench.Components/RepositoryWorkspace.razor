@@ -1,11 +1,11 @@
-﻿@implements IAsyncDisposable
+@implements IAsyncDisposable
 @inject ICiProvider Provider
 @inject UiPreferences Prefs
 @inject WorkspaceSignals Signals
 @inject TimeProvider Time
 
 <CascadingValue Value="this" IsFixed="true">
-<section class="ciw-workspace" aria-busy="@(_loading).ToString().ToLowerInvariant()" data-view="@View">
+<section class="ciw-workspace" aria-busy="@(_loading ? "true" : "false")" data-view="@View">
     @if (_error is not null)
     {
         <div class="ciw-panel ciw-error" role="alert">
@@ -36,7 +36,7 @@
             <div class="ciw-stat"><div><strong>@Fmt.Duration(_avgDuration)</strong><span>average duration</span></div></div>
             <div class="ciw-stat"><div><strong>@(DefaultBranch ?? _runs.GroupBy(r => r.Branch).OrderByDescending(g => g.Count()).Select(g => g.Key).FirstOrDefault() ?? "â€”")</strong><span>@(DefaultBranch is null ? "most active branch" : "default branch")</span></div></div>
             <div class="ciw-stat"><div><strong>@_workflows.Count</strong><span>workflows@(_summary.Active > 0 ? $" Â· {_summary.Active} running" : "")</span></div></div>
-            <div class="ciw-stat"><div><strong>@_series.Values.Sum(a => a.Series.Count)</strong><span>failure series@(_analyzing ? " (analyzingâ€¦)" : "")</span></div></div>
+            <div class="ciw-stat"><div><strong>@_series.Values.Sum(a => a.Recurring.Count)</strong><span>recurring series@(_analyzing ? " (analyzingâ€¦)" : "")</span></div></div>
         </div>
 
         @foreach (var w in _warnings)
@@ -70,7 +70,7 @@
             <div class="ciw-chips" role="group" aria-label="Filter workflows by latest status">
                 @foreach (var f in Filters)
                 {
-                    <button type="button" class="ciw-fchip @(_filter == f ? "on" : "")" aria-pressed="@((_filter == f)).ToString().ToLowerInvariant()" @onclick="() => _filter = f" data-filter="@f">
+                    <button type="button" class="ciw-fchip @(_filter == f ? "on" : "")" aria-pressed="@((_filter == f) ? "true" : "false")" @onclick="() => _filter = f" data-filter="@f">
                         @f <span class="n">@CountFor(f)</span>
                     </button>
                 }
@@ -152,13 +152,13 @@
     private bool _timerStarted;
 
     private string? Search => Signals.SearchText;
-    private int TotalSeries => _series.Values.Sum(a => a.Series.Count);
-    private int DistinctFailedRuns => _series.Values.SelectMany(a => a.Series).SelectMany(s => s.Occurrences).Select(o => o.Run.Id).Distinct().Count();
+    private int TotalSeries => _series.Values.Sum(a => a.Recurring.Count);
+    private int DistinctFailedRuns => _series.Values.SelectMany(a => a.Recurring).SelectMany(s => s.Occurrences).Select(o => o.Run.Id).Distinct().Count();
     private string BannerWorkflows
     {
         get
         {
-            var names = _workflows!.Where(w => _series.TryGetValue(w.Path, out var a) && a.Series.Count > 0).Select(w => w.Name).ToList();
+            var names = _workflows!.Where(w => _series.TryGetValue(w.Path, out var a) && a.Recurring.Count > 0).Select(w => w.Name).ToList();
             return names.Count == 1 ? $" in {names[0]}" : names.Count > 1 ? $" in {names.Count} workflows" : "";
         }
     }

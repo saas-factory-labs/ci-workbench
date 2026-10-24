@@ -10,13 +10,13 @@
     var tableFilter = new RunFilter(State: Ws.StatusFilter == "Failed" ? RunState.Failure : Ws.StatusFilter == "Succeeded" ? RunState.Success : null);
 }
 <div class="ciw-wf" data-workflow="@w.Path">
-    <div class="ciw-wf-head" tabindex="0" role="button" aria-expanded="@(open).ToString().ToLowerInvariant()" @onclick="() => Ws.ToggleWorkflow(w)" @onkeydown="OnKey">
+    <div class="ciw-wf-head" tabindex="0" role="button" aria-expanded="@(open ? "true" : "false")" @onclick="() => Ws.ToggleWorkflow(w)" @onkeydown="OnKey">
         <span class="ciw-chev @(open ? "open" : "")" aria-hidden="true">›</span>
         <StatusIcon State="Ws.LatestState(w)" />
         <span class="ciw-wf-name">@w.Name</span>
         <span class="ciw-mono ciw-muted ciw-path">@w.Path</span>
         @if (!w.IsActive) { <span class="ciw-chip">disabled</span> }
-        @if (hasAnalysis && analysis!.Series.Count > 0) { <span class="ciw-chip bad" title="Recurring failure series">⚠ @analysis.Series.Count series</span> }
+        @if (hasAnalysis && analysis!.Recurring.Count > 0) { <span class="ciw-chip bad" title="Recurring failure series">⚠ @analysis.Recurring.Count series</span> }
         <span class="ciw-spacer"></span>
         <SuccessBar Rate="RunSummary.From(runs).SuccessRate" />
         <span class="ciw-muted ciw-runs">@runs.Count runs</span>
@@ -28,7 +28,7 @@
             @if (hasAnalysis && analysis!.Series.Count > 0)
             {
                 <div>
-                    <div class="ciw-subhead"><span class="ciw-alert-dot" aria-hidden="true">!</span> Recurring failure series <span class="ciw-count">@analysis.Series.Count</span>
+                    <div class="ciw-subhead"><span class="ciw-alert-dot" aria-hidden="true">!</span> Failure analysis <span class="ciw-count">@analysis.Recurring.Count recurring</span>
                         <span class="ciw-muted">Inspected @analysis.RunsInspected of @analysis.RunsAvailable failed runs@(analysis.Truncated ? " — older failures not inspected" : "")</span></div>
                     <FailureSeriesList Repo="Ws.RepoRef" Series="analysis.Series" Runs="runs" OnRunSelected="Ws.Select" />
                 </div>
