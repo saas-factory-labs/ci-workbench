@@ -15,7 +15,7 @@ Please report privately via GitHub **Security advisories** on this repository ("
 
 ## Secret scanning
 
-The repository is protected by a GitGuardian `ggshield` pre-commit hook, a GitGuardian CI workflow and GitHub secret scanning with push protection (see CONTRIBUTING.md). All GitHub Actions are pinned to commit SHAs.
+The repository is protected by a GitGuardian `ggshield` pre-commit hook, GitGuardian and Gitleaks CI workflows and GitHub secret scanning with push protection (see CONTRIBUTING.md). All GitHub Actions are pinned to commit SHAs.
 
 ## Not yet implemented
 
