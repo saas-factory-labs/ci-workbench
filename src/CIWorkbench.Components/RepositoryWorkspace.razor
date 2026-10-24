@@ -1,0 +1,475 @@
+﻿@implements IAsyncDisposable
+@inject ICiProvider Provider
+@inject UiPreferences Prefs
+@inject WorkspaceSignals Signals
+@inject TimeProvider Time
+
+<CascadingValue Value="this" IsFixed="true">
+<section class="ciw-workspace" aria-busy="@(_loading).ToString().ToLowerInvariant()" data-view="@View">
+    @if (_error is not null)
+    {
+        <div class="ciw-panel ciw-error" role="alert">
+            <h3>Could not load @Repo</h3>
+            <p>@_error</p>
+            <button type="button" class="ciw-btn" @onclick="ReloadAsync">Retry</button>
+        </div>
+    }
+    else if (_workflows is null)
+    {
+        <div class="ciw-panel ciw-loading" role="status">
+            <div class="ciw-skel w60"></div><div class="ciw-skel w40"></div><div class="ciw-skel w80"></div>
+            <p class="ciw-muted">@_stage</p>
+        </div>
+    }
+    else
+    {
+        <header class="ciw-repo-head">
+            <div>
+                <h2 class="ciw-repo-title">@Repo.Name <span class="ciw-muted">@Repo.Owner</span></h2>
+                @if (!string.IsNullOrWhiteSpace(Description)) { <p class="ciw-muted">@Description</p> }
+            </div>
+            <div class="ciw-head-actions">@HeaderActions</div>
+        </header>
+
+        <div class="ciw-summary" aria-label="Repository summary">
+            <div class="ciw-stat"><StatusIcon State="@(_summary.Failed > 0 && _summary.SuccessRate < 0.8 ? RunState.Failure : RunState.Success)"/><div><strong>@Fmt.Percent(_summary.SuccessRate) success</strong><span>last @_summary.Total runs</span></div></div>
+            <div class="ciw-stat"><div><strong>@Fmt.Duration(_avgDuration)</strong><span>average duration</span></div></div>
+            <div class="ciw-stat"><div><strong>@(DefaultBranch ?? _runs.GroupBy(r => r.Branch).OrderByDescending(g => g.Count()).Select(g => g.Key).FirstOrDefault() ?? "â€”")</strong><span>@(DefaultBranch is null ? "most active branch" : "default branch")</span></div></div>
+            <div class="ciw-stat"><div><strong>@_workflows.Count</strong><span>workflows@(_summary.Active > 0 ? $" Â· {_summary.Active} running" : "")</span></div></div>
+            <div class="ciw-stat"><div><strong>@_series.Values.Sum(a => a.Series.Count)</strong><span>failure series@(_analyzing ? " (analyzingâ€¦)" : "")</span></div></div>
+        </div>
+
+        @foreach (var w in _warnings)
+        {
+            <div class="ciw-notice warn" role="status">âš  @w</div>
+        }
+        @if (_runs.Count >= MaxRuns)
+        {
+            <div class="ciw-notice info" role="status">Showing the @MaxRuns most recent runs. Open a workflow and choose â€œLoad more historyâ€ for older runs.</div>
+        }
+
+        @if (TotalSeries > 0 && !_bannerDismissed)
+        {
+            <div class="ciw-banner" role="alert" data-testid="failure-banner">
+                <span class="ciw-alert-dot big" aria-hidden="true">!</span>
+                <div class="ciw-banner-text">
+                    <strong>Recurring failures detected@(BannerWorkflows)</strong>
+                    <span>@TotalSeries failure series with @DistinctFailedRuns failed runs in the loaded history. Investigate to prevent delayed deployments.</span>
+                </div>
+                @if (View != WorkspaceView.Failures && OnViewFailures.HasDelegate)
+                {
+                    <button type="button" class="ciw-btn danger" @onclick="() => OnViewFailures.InvokeAsync()">View failure series</button>
+                }
+                <button type="button" class="ciw-iconbtn" aria-label="Dismiss" @onclick="() => _bannerDismissed = true">âœ•</button>
+            </div>
+        }
+
+        <div class="ciw-toolbar">
+            <input class="ciw-search" type="search" placeholder="Search workflows, runs, or branchesâ€¦" aria-label="Search workflows and runs"
+                   value="@Search" @oninput="e => Signals.SetSearch(e.Value?.ToString())" />
+            <div class="ciw-chips" role="group" aria-label="Filter workflows by latest status">
+                @foreach (var f in Filters)
+                {
+                    <button type="button" class="ciw-fchip @(_filter == f ? "on" : "")" aria-pressed="@((_filter == f)).ToString().ToLowerInvariant()" @onclick="() => _filter = f" data-filter="@f">
+                        @f <span class="n">@CountFor(f)</span>
+                    </button>
+                }
+            </div>
+            <button type="button" class="ciw-btn sm" @onclick="ExpandAll">Expand all</button>
+            <button type="button" class="ciw-btn sm" @onclick="CollapseAll">Collapse all</button>
+        </div>
+
+        @if (View == WorkspaceView.Groups)
+        {
+            @if (_resolvingGroups)
+            {
+                <div class="ciw-notice info" role="status">Resolving workflow groups from YAML comments (@_commentsDone/@_commentsTotal)â€¦</div>
+            }
+            @if (_grouping.Groups.Count == 0 || !_grouping.AllWorkflows.Any(a => IsVisible(a.Workflow)))
+            {
+                <div class="ciw-empty">No workflows match the current search and filter.</div>
+            }
+            @foreach (var g in _grouping.Groups.Where(HasVisible))
+            {
+                <GroupNode Group="g" Depth="0" />
+            }
+        }
+        else
+        {
+            @if (_analyzing) { <div class="ciw-notice info" role="status">Analyzing failures (bounded to the newest @FailureAnalyzer.DefaultMaxRuns failed runs per workflow)â€¦</div> }
+            @foreach (var w in _workflows.Where(w => _series.ContainsKey(w.Path) && _series[w.Path].Series.Count > 0))
+            {
+                <section class="ciw-panel">
+                    <h3>@w.Name <span class="ciw-muted ciw-mono">@w.Path</span></h3>
+                    <p class="ciw-muted">Inspected @_series[w.Path].RunsInspected of @_series[w.Path].RunsAvailable failed runs@(_series[w.Path].Truncated ? " (older failures not inspected)" : "").</p>
+                    <FailureSeriesList Repo="Repo" Series="_series[w.Path].Series" Runs="_runs" OnRunSelected="Select" />
+                </section>
+            }
+            @if (!_analyzing && TotalSeries == 0)
+            {
+                <div class="ciw-empty">No recurring failure series found in the loaded history.</div>
+            }
+        }
+    }
+</section>
+</CascadingValue>
+
+@code {
+    private static readonly string[] Filters = ["All", "Failed", "Running", "Succeeded"];
+
+    [Parameter, EditorRequired] public RepoRef Repo { get; set; }
+    [Parameter] public WorkspaceView View { get; set; } = WorkspaceView.Groups;
+    [Parameter] public string? Description { get; set; }
+    [Parameter] public string? DefaultBranch { get; set; }
+    [Parameter] public int MaxRuns { get; set; } = 100;
+    [Parameter] public bool AutoRefresh { get; set; } = true;
+    [Parameter] public TimeSpan RefreshInterval { get; set; } = TimeSpan.FromSeconds(30);
+    [Parameter] public long? SelectedRunId { get; set; }
+    [Parameter] public RenderFragment? HeaderActions { get; set; }
+    [Parameter] public EventCallback<RunSelection> OnRunSelected { get; set; }
+    [Parameter] public EventCallback OnViewFailures { get; set; }
+
+    private IReadOnlyList<WorkflowInfo>? _workflows;
+    private IReadOnlyList<WorkflowRunInfo> _runs = [];
+    private readonly Dictionary<long, IReadOnlyList<WorkflowRunInfo>> _history = [];
+    private readonly Dictionary<long, IReadOnlyList<JobInfo>> _jobs = [];
+    private readonly Dictionary<string, FailureAnalysis> _series = [];
+    private readonly Dictionary<string, string> _analysisKey = [];
+    private GroupConfig _config = new();
+    private Dictionary<string, string?> _commentGroups = [];
+    private GroupingResult _grouping = new([], []);
+    private List<string> _warnings = [];
+    private RunSummary _summary = new(0, 0, 0, 0);
+    private TimeSpan? _avgDuration;
+    private string? _error;
+    private string _stage = "Loading workflowsâ€¦";
+    private bool _loading, _analyzing, _resolvingGroups, _bannerDismissed;
+    private int _commentsDone, _commentsTotal;
+    private string _filter = "All";
+    private DateTimeOffset _lastRefresh = DateTimeOffset.MinValue;
+    private RepoRef _loadedRepo;
+    private CancellationTokenSource _cts = new();
+    private bool _timerStarted;
+
+    private string? Search => Signals.SearchText;
+    private int TotalSeries => _series.Values.Sum(a => a.Series.Count);
+    private int DistinctFailedRuns => _series.Values.SelectMany(a => a.Series).SelectMany(s => s.Occurrences).Select(o => o.Run.Id).Distinct().Count();
+    private string BannerWorkflows
+    {
+        get
+        {
+            var names = _workflows!.Where(w => _series.TryGetValue(w.Path, out var a) && a.Series.Count > 0).Select(w => w.Name).ToList();
+            return names.Count == 1 ? $" in {names[0]}" : names.Count > 1 ? $" in {names.Count} workflows" : "";
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        Signals.RefreshRequested += OnRefreshRequested;
+        Signals.Changed += OnSignalsChanged;
+        Prefs.Changed += OnSignalsChanged;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedRepo.Equals(Repo) && _workflows is not null) return;
+        _loadedRepo = Repo;
+        await ReloadAsync();
+    }
+
+    private void OnSignalsChanged() => InvokeAsync(StateHasChanged);
+    private void OnRefreshRequested() => _ = InvokeAsync(() => RefreshAsync(manual: true));
+
+    // ----------------------------------------------------------------------------------- loading
+
+    private async Task ReloadAsync()
+    {
+        _cts.Cancel(); _cts.Dispose(); _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
+        _workflows = null; _error = null; _runs = []; _series.Clear(); _analysisKey.Clear(); _history.Clear(); _jobs.Clear();
+        _warnings = []; _bannerDismissed = false; _commentGroups = []; _config = new(); _grouping = new([], []);
+        _loading = true; _stage = "Loading workflowsâ€¦"; Signals.ReportLoading(true);
+        var repo = Repo;
+        try
+        {
+            var wfTask = Provider.ListWorkflowsAsync(repo, ct);
+            var runsTask = Provider.ListRecentRunsAsync(repo, MaxRuns, ct);
+            var cfgTask = ReadConfigAsync(repo, ct);
+            var wfs = await wfTask;
+            _stage = "Loading recent runsâ€¦"; await InvokeAsync(StateHasChanged);
+            _runs = await runsTask;
+            var cfg = await cfgTask;
+            _config = cfg.Config;
+            if (cfg.Warning is not null) _warnings.Add(cfg.Warning);
+            _workflows = WithOrphans(wfs, _runs);
+            Recompute();
+            SeedDefaultExpansion();
+            _lastRefresh = Time.GetUtcNow();
+            Signals.ReportUpdated(_lastRefresh);
+            _loading = false;
+            await InvokeAsync(StateHasChanged);
+
+            _ = ResolveCommentGroupsAsync(repo, ct);
+            if (_workflows.Count <= 3 || View == WorkspaceView.Failures) await AnalyzeCandidatesAsync(ct);
+            StartPolling();
+        }
+        catch (OperationCanceledException) { }
+        catch (CiProviderException ex) { _error = ex.Message; _loading = false; Signals.ReportLoading(false); }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task<(GroupConfig Config, string? Warning)> ReadConfigAsync(RepoRef repo, CancellationToken ct)
+    {
+        try { return GroupConfigParser.Parse(await Provider.GetFileAsync(repo, ".ciworkbench.yml", ct)); }
+        catch (CiProviderException ex) { return (new GroupConfig(), $"Could not read .ciworkbench.yml ({ex.Message}) â€” using YAML comments and defaults."); }
+    }
+
+    /// <summary>Runs whose workflow is not in the workflow list still appear, under their own entry, so nothing silently disappears.</summary>
+    private static IReadOnlyList<WorkflowInfo> WithOrphans(IReadOnlyList<WorkflowInfo> wfs, IReadOnlyList<WorkflowRunInfo> runs)
+    {
+        var known = wfs.Select(w => w.Id).ToHashSet();
+        var orphans = runs.Where(r => !known.Contains(r.WorkflowId)).GroupBy(r => r.WorkflowId)
+            .Select(g => new WorkflowInfo(g.Key, g.First().Name + " (not in workflow list)", string.IsNullOrEmpty(g.First().WorkflowPath) ? $"unknown/{g.Key}" : g.First().WorkflowPath, true, null));
+        return [.. wfs, .. orphans];
+    }
+
+    private void Recompute()
+    {
+        _summary = RunSummary.From(_runs);
+        var done = _runs.Where(r => r.Duration is not null).ToList();
+        _avgDuration = done.Count == 0 ? null : TimeSpan.FromSeconds(done.Average(r => r.Duration!.Value.TotalSeconds));
+        _grouping = WorkflowGroupResolver.Resolve(_workflows!, _config, _commentGroups, _warnings.Where(w => w.StartsWith(".ciworkbench.yml")));
+        foreach (var w in _grouping.Warnings.Where(w => !_warnings.Contains(w))) _warnings.Add(w);
+    }
+
+    /// <summary>
+    /// Comment-based groups need file contents. Fetch only workflows not already placed by central config, with bounded concurrency,
+    /// after the first render, so the overview never waits on N file requests.
+    /// </summary>
+    private async Task ResolveCommentGroupsAsync(RepoRef repo, CancellationToken ct)
+    {
+        var pending = _workflows!.Where(w => !w.Path.StartsWith("dynamic/", StringComparison.Ordinal) && !_config.Groups.Any(g => g.Workflows.Any(p => WorkflowGroupResolver.PathMatches(p, w.Path)))).ToList();
+        if (pending.Count == 0) return;
+        _resolvingGroups = true; _commentsTotal = pending.Count; _commentsDone = 0;
+        await InvokeAsync(StateHasChanged);
+        using var gate = new SemaphoreSlim(4);
+        try
+        {
+            await Task.WhenAll(pending.Select(async w =>
+            {
+                await gate.WaitAsync(ct);
+                try
+                {
+                    var text = await Provider.GetFileAsync(repo, w.Path, ct);
+                    lock (_commentGroups) _commentGroups[w.Path] = WorkflowGroupResolver.ExtractCommentGroup(text);
+                }
+                catch (CiProviderException) { /* unreadable workflow file: stays in the default group */ }
+                finally { gate.Release(); Interlocked.Increment(ref _commentsDone); }
+            }));
+            if (ct.IsCancellationRequested || !repo.Equals(Repo)) return;
+            Recompute();
+            SeedDefaultExpansion(force: true);
+        }
+        catch (OperationCanceledException) { }
+        finally { _resolvingGroups = false; await InvokeAsync(StateHasChanged); }
+    }
+
+    private void SeedDefaultExpansion(bool force = false)
+    {
+        var seed = $"seeded|{Repo}";
+        if (Prefs.IsExpanded(seed) && !force) return;
+        Prefs.SetExpanded(seed, true);
+        foreach (var g in Walk(_grouping.Groups))
+        {
+            var key = GroupKey(g);
+            var hasFailing = g.Workflows.Any(a => LatestState(a.Workflow) == RunState.Failure) || g.Children.Any();
+            if (!Prefs.IsExpanded(key) && (hasFailing && _workflows!.Count <= 12 || _grouping.Groups.Count == 1 || _workflows!.Count <= 3)) Prefs.SetExpanded(key, true);
+        }
+        if (_workflows!.Count <= 3) foreach (var w in _workflows) Prefs.SetExpanded(WorkflowKey(w), true);
+    }
+
+    private static IEnumerable<WorkflowGroup> Walk(IEnumerable<WorkflowGroup> gs) => gs.SelectMany(g => new[] { g }.Concat(Walk(g.Children)));
+
+    // ----------------------------------------------------------------------------------- refresh
+
+    private void StartPolling()
+    {
+        if (_timerStarted || !AutoRefresh || Provider.IsDemo) return;
+        _timerStarted = true;
+        _ = PollAsync(_cts.Token);
+    }
+
+    private async Task PollAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(RefreshInterval);
+        try { while (await timer.WaitForNextTickAsync(ct)) await InvokeAsync(() => RefreshAsync(manual: false)); }
+        catch (OperationCanceledException) { }
+        finally { _timerStarted = false; }
+    }
+
+    private async Task RefreshAsync(bool manual)
+    {
+        if (_workflows is null || _loading) return;
+        if (manual && Time.GetUtcNow() - _lastRefresh < TimeSpan.FromSeconds(3)) return;   // throttle
+        var ct = _cts.Token;
+        try
+        {
+            Signals.ReportLoading(true);
+            _runs = await Provider.ListRecentRunsAsync(Repo, MaxRuns, ct);
+            _workflows = WithOrphans(_workflows.Where(w => !w.Name.EndsWith("(not in workflow list)")).ToList(), _runs);
+            Recompute();
+            _lastRefresh = Time.GetUtcNow();
+            Signals.ReportUpdated(_lastRefresh);
+            foreach (var path in _series.Keys.ToList())
+                if (_workflows.FirstOrDefault(w => w.Path == path) is { } w) await AnalyzeWorkflowAsync(w, ct, onlyIfChanged: true);
+        }
+        catch (OperationCanceledException) { }
+        catch (CiProviderException ex) { _warnings = [.. _warnings.Where(x => !x.StartsWith("Refresh failed")), $"Refresh failed: {ex.Message}"]; Signals.ReportLoading(false); }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ----------------------------------------------------------------------------------- analysis
+
+    private IEnumerable<WorkflowInfo> AnalysisCandidates() =>
+        _workflows!.Select(w => (w, fails: RunsFor(w).Count(r => r.State == RunState.Failure))).Where(x => x.fails >= 2)
+            .OrderByDescending(x => x.fails).Take(5).Select(x => x.w);
+
+    private async Task AnalyzeCandidatesAsync(CancellationToken ct)
+    {
+        _analyzing = true; await InvokeAsync(StateHasChanged);
+        try { foreach (var w in AnalysisCandidates()) { await AnalyzeWorkflowAsync(w, ct); await InvokeAsync(StateHasChanged); } }
+        catch (OperationCanceledException) { }
+        catch (CiProviderException ex) { _warnings.Add($"Failure analysis stopped: {ex.Message}"); }
+        finally { _analyzing = false; }
+    }
+
+    private async Task AnalyzeWorkflowAsync(WorkflowInfo w, CancellationToken ct, bool onlyIfChanged = false)
+    {
+        var runs = RunsFor(w);
+        var key = string.Join(',', runs.Where(r => r.State == RunState.Failure).OrderByDescending(r => r.SortTime).Take(FailureAnalyzer.DefaultMaxRuns).Select(r => r.Id)) + "|" + (runs.FirstOrDefault()?.Id);
+        if (onlyIfChanged && _analysisKey.TryGetValue(w.Path, out var old) && old == key) return;
+        var truncated = _history.ContainsKey(w.Id) ? runs.Count >= 100 : _runs.Count >= MaxRuns;
+        _series[w.Path] = await new FailureAnalyzer(Provider).AnalyzeAsync(Repo, runs, truncated, FailureAnalyzer.DefaultMaxRuns, ct);
+        _analysisKey[w.Path] = key;
+    }
+
+    // ----------------------------------------------------------------------------------- helpers
+
+    internal IReadOnlyList<WorkflowRunInfo> RunsFor(WorkflowInfo w) =>
+        _history.TryGetValue(w.Id, out var h) ? h : _runs.Where(r => r.WorkflowId == w.Id).OrderByDescending(r => r.SortTime).ToList();
+
+    private RunState? LatestStateOrNull(WorkflowInfo w) => RunsFor(w).FirstOrDefault()?.State;
+    internal RunState LatestState(WorkflowInfo w) => LatestStateOrNull(w) ?? RunState.Neutral;
+
+    private bool MatchesFilter(WorkflowInfo w, string f) => f switch
+    {
+        "Failed" => LatestStateOrNull(w) == RunState.Failure,
+        "Running" => RunsFor(w).Any(r => r.State.IsActive()),
+        "Succeeded" => LatestStateOrNull(w) == RunState.Success,
+        _ => true,
+    };
+
+    private int CountFor(string f) => _workflows!.Count(w => MatchesFilter(w, f));
+
+    private bool MatchesSearch(WorkflowInfo w)
+    {
+        if (string.IsNullOrWhiteSpace(Search)) return true;
+        return RunFiltering.WorkflowMatches(w, Search) || RunFiltering.Apply(RunsFor(w), new RunFilter(Search)).Count > 0;
+    }
+
+    internal bool IsVisible(WorkflowInfo w) => MatchesFilter(w, _filter) && MatchesSearch(w);
+    internal bool HasVisible(WorkflowGroup g) => g.AllWorkflows.Any(a => IsVisible(a.Workflow));
+
+    internal IReadOnlyList<WorkflowRunInfo> VisibleRuns(WorkflowInfo w)
+    {
+        var runs = RunsFor(w);
+        if (string.IsNullOrWhiteSpace(Search) || RunFiltering.WorkflowMatches(w, Search)) return runs;
+        return RunFiltering.Apply(runs, new RunFilter(Search));
+    }
+
+    internal string GroupKey(WorkflowGroup g) => $"group|{Repo}|{g.Path}";
+    internal string WorkflowKey(WorkflowInfo w) => $"wf|{Repo}|{w.Path}|{w.Id}";
+    internal bool Searching => !string.IsNullOrWhiteSpace(Search);
+
+    private void ExpandAll() { foreach (var g in Walk(_grouping.Groups)) Prefs.SetExpanded(GroupKey(g), true); }
+    private void CollapseAll()
+    {
+        foreach (var g in Walk(_grouping.Groups)) Prefs.SetExpanded(GroupKey(g), false);
+        foreach (var w in _workflows!) Prefs.SetExpanded(WorkflowKey(w), false);
+    }
+
+    internal Task Select(RunSelection s) => OnRunSelected.InvokeAsync(s);
+    internal Task SelectRun(WorkflowRunInfo r) => OnRunSelected.InvokeAsync(new RunSelection(Repo, r));
+
+    internal async Task ToggleWorkflow(WorkflowInfo w)
+    {
+        var key = WorkflowKey(w);
+        Prefs.Toggle(key);
+        if (!Prefs.IsExpanded(key)) return;
+        var ct = _cts.Token;
+        try
+        {
+            var latest = RunsFor(w).FirstOrDefault(r => r.State.IsCompleted());
+            if (latest is not null && !_jobs.ContainsKey(latest.Id)) { _jobs[latest.Id] = await Provider.ListJobsAsync(Repo, latest.Id, ct); await InvokeAsync(StateHasChanged); }
+            if (!_series.ContainsKey(w.Path) && RunsFor(w).Count(r => r.State == RunState.Failure) >= 2)
+            {
+                _analyzing = true; await InvokeAsync(StateHasChanged);
+                await AnalyzeWorkflowAsync(w, ct);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (CiProviderException ex) { _warnings.Add($"{w.Name}: {ex.Message}"); }
+        finally { _analyzing = false; }
+    }
+
+    internal async Task LoadHistoryAsync(WorkflowInfo w)
+    {
+        try
+        {
+            _history[w.Id] = await Provider.ListWorkflowRunsAsync(Repo, w.Id, 100, _cts.Token);
+            _series.Remove(w.Path); _analysisKey.Remove(w.Path);
+            if (RunsFor(w).Count(r => r.State == RunState.Failure) >= 2) await AnalyzeWorkflowAsync(w, _cts.Token);
+        }
+        catch (OperationCanceledException) { }
+        catch (CiProviderException ex) { _warnings.Add($"{w.Name}: {ex.Message}"); }
+    }
+
+    internal async Task AnalyzeNow(WorkflowInfo w)
+    {
+        _analyzing = true;
+        try { await AnalyzeWorkflowAsync(w, _cts.Token); }
+        catch (OperationCanceledException) { }
+        catch (CiProviderException ex) { _warnings.Add($"{w.Name}: {ex.Message}"); }
+        finally { _analyzing = false; }
+    }
+
+    // ----------------------------------------------------------------------------------- node helpers (used by GroupNode / WorkflowNode)
+
+    internal RepoRef RepoRef => Repo;
+    internal UiPreferences Preferences => Prefs;
+    internal TimeProvider Clock => Time;
+    internal IReadOnlyList<WorkflowRunInfo> AllRuns => _runs;
+    internal bool Analyzing => _analyzing;
+    internal string StatusFilter => _filter;
+    internal long? SelectedRun => SelectedRunId;
+    internal bool TryGetAnalysis(string path, out FailureAnalysis analysis) => _series.TryGetValue(path, out analysis!);
+    internal bool TryGetJobs(long runId, out IReadOnlyList<JobInfo> jobs) => _jobs.TryGetValue(runId, out jobs!);
+    internal bool HasHistory(long workflowId) => _history.ContainsKey(workflowId);
+
+    internal bool GroupOpen(WorkflowGroup g) => Prefs.IsExpanded(GroupKey(g)) || Searching;
+    internal int VisibleCount(WorkflowGroup g) => g.AllWorkflows.Count(a => IsVisible(a.Workflow));
+    internal double? GroupRate(WorkflowGroup g) => RunSummary.From(g.AllWorkflows.SelectMany(a => RunsFor(a.Workflow))).SuccessRate;
+    internal bool WfOpen(WorkflowInfo w) => Prefs.IsExpanded(WorkflowKey(w));
+    internal void ToggleGroup(WorkflowGroup g) => Prefs.Toggle(GroupKey(g));
+    internal bool IsGroupVisible(WorkflowGroup g) => HasVisible(g);
+    internal bool IsWorkflowVisible(WorkflowInfo w) => IsVisible(w);
+    public async ValueTask DisposeAsync()
+    {
+        Signals.RefreshRequested -= OnRefreshRequested;
+        Signals.Changed -= OnSignalsChanged;
+        Prefs.Changed -= OnSignalsChanged;
+        _cts.Cancel(); _cts.Dispose();
+        await ValueTask.CompletedTask;
+    }
+}
+

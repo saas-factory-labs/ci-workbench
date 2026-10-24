@@ -1,0 +1,38 @@
+@inject IJSRuntime JS
+
+<button type="button" class="ciw-btn @(Primary ? "primary" : "")" @onclick="CopyAsync" disabled="@_busy" title="Copies a bounded, secret-redacted summary to your clipboard. Nothing is sent anywhere.">
+    @(_busy ? "Preparing…" : _copied ? "Copied ✓" : Label)
+</button>
+@if (_fallback is not null)
+{
+    <div class="ciw-fallback">
+        <p class="ciw-muted">Clipboard access was blocked. Select and copy the text below:</p>
+        <textarea readonly rows="8" @onfocus="SelectAll">@_fallback</textarea>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public Func<Task<string>> BuildText { get; set; } = default!;
+    [Parameter] public string Label { get; set; } = "Copy context for coding agent";
+    [Parameter] public bool Primary { get; set; }
+
+    private bool _busy, _copied;
+    private string? _fallback;
+
+    private async Task CopyAsync()
+    {
+        _busy = true; _copied = false; _fallback = null;
+        try
+        {
+            var text = await BuildText();
+            try { _copied = await JS.InvokeAsync<bool>("ciw.copy", text); }
+            catch (JSException) { _copied = false; }
+            catch (InvalidOperationException) { _copied = false; }  // JS unavailable (prerender)
+            if (!_copied) _fallback = text;
+        }
+        catch (CiProviderException ex) { _fallback = $"Could not build context: {ex.Message}"; }
+        finally { _busy = false; }
+    }
+
+    private Task SelectAll() => JS.InvokeVoidAsync("ciw.selectActive").AsTask();
+}

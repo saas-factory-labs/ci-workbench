@@ -1,0 +1,72 @@
+@{
+    var w = Assigned.Workflow;
+    var runs = Ws.RunsFor(w);
+    var open = Ws.WfOpen(w);
+    var hasAnalysis = Ws.TryGetAnalysis(w.Path, out var analysis);
+    var failures = runs.Count(r => r.State == RunState.Failure);
+    var latestDone = runs.FirstOrDefault(r => r.State.IsCompleted());
+    IReadOnlyList<JobInfo>? jobs = null;
+    var hasJobs = latestDone is not null && Ws.TryGetJobs(latestDone.Id, out jobs);
+    var tableFilter = new RunFilter(State: Ws.StatusFilter == "Failed" ? RunState.Failure : Ws.StatusFilter == "Succeeded" ? RunState.Success : null);
+}
+<div class="ciw-wf" data-workflow="@w.Path">
+    <div class="ciw-wf-head" tabindex="0" role="button" aria-expanded="@(open).ToString().ToLowerInvariant()" @onclick="() => Ws.ToggleWorkflow(w)" @onkeydown="OnKey">
+        <span class="ciw-chev @(open ? "open" : "")" aria-hidden="true">›</span>
+        <StatusIcon State="Ws.LatestState(w)" />
+        <span class="ciw-wf-name">@w.Name</span>
+        <span class="ciw-mono ciw-muted ciw-path">@w.Path</span>
+        @if (!w.IsActive) { <span class="ciw-chip">disabled</span> }
+        @if (hasAnalysis && analysis!.Series.Count > 0) { <span class="ciw-chip bad" title="Recurring failure series">⚠ @analysis.Series.Count series</span> }
+        <span class="ciw-spacer"></span>
+        <SuccessBar Rate="RunSummary.From(runs).SuccessRate" />
+        <span class="ciw-muted ciw-runs">@runs.Count runs</span>
+        <span class="ciw-muted ciw-ago">@Fmt.Ago(runs.FirstOrDefault()?.SortTime, Ws.Clock.GetUtcNow())</span>
+    </div>
+    @if (open)
+    {
+        <div class="ciw-wf-body">
+            @if (hasAnalysis && analysis!.Series.Count > 0)
+            {
+                <div>
+                    <div class="ciw-subhead"><span class="ciw-alert-dot" aria-hidden="true">!</span> Recurring failure series <span class="ciw-count">@analysis.Series.Count</span>
+                        <span class="ciw-muted">Inspected @analysis.RunsInspected of @analysis.RunsAvailable failed runs@(analysis.Truncated ? " — older failures not inspected" : "")</span></div>
+                    <FailureSeriesList Repo="Ws.RepoRef" Series="analysis.Series" Runs="runs" OnRunSelected="Ws.Select" />
+                </div>
+            }
+            else if (Ws.Analyzing && !hasAnalysis && failures >= 2)
+            {
+                <div class="ciw-notice info" role="status">Analyzing recent failures…</div>
+            }
+            else if (failures > 0 && !hasAnalysis)
+            {
+                <div><button type="button" class="ciw-btn sm" @onclick="() => Ws.AnalyzeNow(w)">Analyze failures</button></div>
+            }
+            @if (hasJobs && jobs is not null)
+            {
+                <div class="ciw-health" aria-label="Job health of the latest completed run">
+                    <span class="ciw-subhead">Job health <span class="ciw-muted">(latest completed run #@latestDone!.RunNumber)</span></span>
+                    <div class="ciw-health-items">
+                    @foreach (var j in jobs)
+                    {
+                        <button type="button" class="ciw-job @Fmt.StateClass(j.State)" @onclick="() => Ws.Select(new RunSelection(Ws.RepoRef, latestDone, j.Name))" title="Open in inspector">
+                            <StatusIcon State="j.State"/> <span><strong>@j.Name</strong><small>@(j.State == RunState.Success ? "Passed" : Fmt.StateLabel(j.State)) · @Fmt.Duration(j.Duration)</small></span>
+                        </button>
+                    }
+                    </div>
+                </div>
+            }
+            <RunTable Runs="RunFiltering.Apply(Ws.VisibleRuns(w), tableFilter)" SelectedRunId="Ws.SelectedRun" OnRunSelected="Ws.SelectRun" />
+            @if (!Ws.HasHistory(w.Id) && runs.Count >= 5)
+            {
+                <div><button type="button" class="ciw-btn sm" @onclick="() => Ws.LoadHistoryAsync(w)">Load more history</button></div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter] internal RepositoryWorkspace Ws { get; set; } = default!;
+    [Parameter, EditorRequired] public AssignedWorkflow Assigned { get; set; } = default!;
+
+    private void OnKey(KeyboardEventArgs e) { if (e.Key is "Enter" or " ") _ = Ws.ToggleWorkflow(Assigned.Workflow); }
+}

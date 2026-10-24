@@ -1,0 +1,25 @@
+<div class="checklist" aria-live="polite">
+    @if (Report is null)
+    {
+        <p class="ciw-muted">@(Busy ? "Verifying with the GitHub API…" : "Not verified yet.")</p>
+    }
+    else
+    {
+        <p class="ciw-muted">Account: <strong>@Report.Account</strong></p>
+        <ul>
+        @foreach (var c in Report.Checks)
+        {
+            <li class="chk @c.Status.ToString().ToLowerInvariant()" data-check="@c.Name">
+                <span class="mark" aria-hidden="true">@(c.Status == CheckStatus.Ok ? "✓" : c.Status == CheckStatus.Failed ? "✕" : "–")</span>
+                <span><strong>@c.Name</strong><br /><span class="ciw-muted">@c.Detail</span></span>
+            </li>
+        }
+        </ul>
+    }
+    @if (Busy && Report is not null) { <p class="ciw-muted">Re-verifying…</p> }
+</div>
+
+@code {
+    [Parameter] public ConnectionReport? Report { get; set; }
+    [Parameter] public bool Busy { get; set; }
+}

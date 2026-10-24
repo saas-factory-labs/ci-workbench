@@ -1,0 +1,32 @@
+<div class="ciw-group depth-@Depth" data-group="@Group.Path">
+    <div class="ciw-group-head" tabindex="0" role="button" aria-expanded="@(Open).ToString().ToLowerInvariant()" @onclick="() => Ws.ToggleGroup(Group)" @onkeydown="OnKey">
+        <span class="ciw-chev @(Open ? "open" : "")" aria-hidden="true">›</span>
+        <span class="ciw-group-name">@Group.Name</span>
+        <span class="ciw-count" title="Workflows in this group">@Ws.VisibleCount(Group)</span>
+        @if (!string.IsNullOrEmpty(Group.Description)) { <span class="ciw-muted ciw-desc">@Group.Description</span> }
+        <span class="ciw-spacer"></span>
+        <SuccessBar Rate="Ws.GroupRate(Group)" />
+    </div>
+    @if (Open)
+    {
+        <div class="ciw-group-body">
+            @foreach (var a in Group.Workflows.Where(a => Ws.IsWorkflowVisible(a.Workflow)))
+            {
+                <WorkflowNode Assigned="a" @key="a.Workflow.Id" />
+            }
+            @foreach (var c in Group.Children.Where(Ws.IsGroupVisible))
+            {
+                <GroupNode Group="c" Depth="Depth + 1" @key="c.Path" />
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter] internal RepositoryWorkspace Ws { get; set; } = default!;
+    [Parameter, EditorRequired] public WorkflowGroup Group { get; set; } = default!;
+    [Parameter] public int Depth { get; set; }
+
+    private bool Open => Ws.GroupOpen(Group);
+    private void OnKey(KeyboardEventArgs e) { if (e.Key is "Enter" or " ") Ws.ToggleGroup(Group); }
+}

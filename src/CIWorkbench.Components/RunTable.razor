@@ -1,0 +1,58 @@
+@inject TimeProvider Time
+
+<table class="ciw-table" aria-label="Workflow runs">
+    <thead>
+        <tr>
+            <th class="w-status">Status</th><th>Run</th><th>Trigger</th><th>Branch</th><th>Started</th><th>Duration</th><th>Actor</th>
+        </tr>
+    </thead>
+    <tbody>
+    @foreach (var r in Page)
+    {
+        <tr class="ciw-row @(r.Id == SelectedRunId ? "selected" : "")" tabindex="0" @onclick="() => Select(r)" @onkeydown="e => OnKey(e, r)" data-run-id="@r.Id">
+            <td><StatusIcon State="r.State"/> <span class="ciw-state ciw-@Fmt.StateClass(r.State)">@Fmt.StateLabel(r.State)</span></td>
+            <td class="ciw-mono">@r.Id<span class="ciw-muted"> #@r.RunNumber@(r.Attempt > 1 ? $" ↻{r.Attempt}" : "")</span></td>
+            <td><span class="ciw-chip">@r.Event</span></td>
+            <td><span class="ciw-chip branch">@r.Branch</span></td>
+            <td title="@Fmt.When(r.SortTime)">@Fmt.When(r.SortTime)</td>
+            <td>@Fmt.Duration(r.Duration)</td>
+            <td class="ciw-actor">@r.Actor</td>
+        </tr>
+    }
+    @if (Runs.Count == 0)
+    {
+        <tr><td colspan="7" class="ciw-empty">No runs match the current filters.</td></tr>
+    }
+    </tbody>
+</table>
+@if (Runs.Count > 5)
+{
+    <div class="ciw-pager">
+        <span class="ciw-muted">@(Start + 1)–@Math.Min(Start + PageSize, Runs.Count) of @Runs.Count runs</span>
+        <span class="ciw-pager-ctl">
+            <button type="button" class="ciw-btn sm" disabled="@(PageIndex == 0)" @onclick="() => PageIndex--" aria-label="Previous page">‹</button>
+            <span>@(PageIndex + 1) / @PageCount</span>
+            <button type="button" class="ciw-btn sm" disabled="@(PageIndex >= PageCount - 1)" @onclick="() => PageIndex++" aria-label="Next page">›</button>
+            <label class="ciw-muted">Rows <select @onchange="OnSize" aria-label="Rows per page">
+                @foreach (var n in new[] { 5, 10, 25, 50 }) { <option value="@n" selected="@(n == PageSize)">@n</option> }
+            </select></label>
+        </span>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<WorkflowRunInfo> Runs { get; set; } = [];
+    [Parameter] public long? SelectedRunId { get; set; }
+    [Parameter] public EventCallback<WorkflowRunInfo> OnRunSelected { get; set; }
+    [Parameter] public int PageSize { get; set; } = 10;
+
+    private int PageIndex { get; set; }
+    private int PageCount => Math.Max(1, (int)Math.Ceiling(Runs.Count / (double)PageSize));
+    private int Start => PageIndex * PageSize;
+    private IEnumerable<WorkflowRunInfo> Page => Runs.Skip(Start).Take(PageSize);
+
+    protected override void OnParametersSet() { if (PageIndex >= PageCount) PageIndex = PageCount - 1; }
+    private Task Select(WorkflowRunInfo r) => OnRunSelected.InvokeAsync(r);
+    private Task OnKey(KeyboardEventArgs e, WorkflowRunInfo r) => e.Key is "Enter" or " " ? Select(r) : Task.CompletedTask;
+    private void OnSize(ChangeEventArgs e) { PageSize = int.Parse(e.Value?.ToString() ?? "10"); PageIndex = 0; }
+}

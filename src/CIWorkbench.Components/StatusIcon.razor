@@ -1,0 +1,23 @@
+<span class="ciw-status ciw-@Fmt.StateClass(State)" role="img" aria-label="@Fmt.StateLabel(State)" title="@Fmt.StateLabel(State)">
+    @switch (State)
+    {
+        case RunState.Success:
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="currentColor"/><path d="M4.6 8.2l2.2 2.2 4.6-4.8" fill="none" stroke="var(--ciw-bg)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            break;
+        case RunState.Failure:
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="currentColor"/><path d="M5.2 5.2l5.6 5.6M10.8 5.2l-5.6 5.6" stroke="var(--ciw-bg)" stroke-width="1.8" stroke-linecap="round"/></svg>
+            break;
+        case RunState.InProgress:
+            <svg viewBox="0 0 16 16" aria-hidden="true" class="ciw-spin"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="26 14" stroke-linecap="round"/></svg>
+            break;
+        case RunState.Queued:
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 4.6V8l2.2 1.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            break;
+        default:
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="currentColor"/><path d="M5 8h6" stroke="var(--ciw-bg)" stroke-width="1.8" stroke-linecap="round"/></svg>
+            break;
+    }
+</span>
+@code {
+    [Parameter, EditorRequired] public RunState State { get; set; }
+}

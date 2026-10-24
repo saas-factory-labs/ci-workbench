@@ -1,0 +1,46 @@
+@page "/repositories"
+@implements IDisposable
+@inject AppSession Session
+@inject TimeProvider Time
+
+<PageTitle>Repositories · CIWorkbench</PageTitle>
+<h1 class="page-title">Repositories</h1>
+
+<div class="card"><DiscoveryStatus /></div>
+
+<input class="ciw-search wide" type="search" placeholder="Filter repositories…" aria-label="Filter repositories" @bind="_filter" @bind:event="oninput" />
+
+<ul class="repo-list" data-testid="repo-list">
+    @foreach (var r in Filtered)
+    {
+        <li>
+            <a href="repo/@r.Ref.Owner/@r.Ref.Name" class="repo-row">
+                <span class="repo-name">@r.Ref.FullName</span>
+                @if (r.IsPrivate) { <span class="ciw-chip">private</span> }
+                <span class="ciw-muted desc">@r.Description</span>
+                <span class="ciw-muted when">@Fmt.Ago(r.PushedAt, Time.GetUtcNow())</span>
+            </a>
+        </li>
+    }
+</ul>
+@if (Total > Shown)
+{
+    <p class="ciw-muted">Showing @Shown of @Total matches. Refine the filter to narrow the list.</p>
+}
+else if (Total == 0)
+{
+    <p class="ciw-empty">@(Session.Discovery == DiscoveryState.Running ? "Waiting for the first page…" : "No repositories match.")</p>
+}
+
+@code {
+    private const int Max = 200;
+    private string _filter = "";
+    private IEnumerable<RepositoryInfo> Matches => Session.Repositories.Where(r => string.IsNullOrWhiteSpace(_filter)
+        || r.Ref.FullName.Contains(_filter.Trim(), StringComparison.OrdinalIgnoreCase) || (r.Description?.Contains(_filter.Trim(), StringComparison.OrdinalIgnoreCase) ?? false));
+    private IEnumerable<RepositoryInfo> Filtered => Matches.Take(Max);
+    private int Total => Matches.Count();
+    private int Shown => Math.Min(Total, Max);
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    protected override void OnInitialized() => Session.Changed += OnChanged;
+    public void Dispose() => Session.Changed -= OnChanged;
+}

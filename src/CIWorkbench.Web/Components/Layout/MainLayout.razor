@@ -1,23 +1,172 @@
 ﻿@inherits LayoutComponentBase
+@implements IAsyncDisposable
+@inject AppSession Session
+@inject UiPreferences Prefs
+@inject InspectorState Inspector
+@inject WorkspaceSignals Signals
+@inject NavigationManager Nav
+@inject TimeProvider Time
+@inject IJSRuntime JS
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
-
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+<div class="ciw-root shell" data-ciw-density="@(Prefs.Density == Density.Compact ? "compact" : "comfortable")" data-inspector="@(Prefs.InspectorOpen ? "open" : "closed")">
+    @if (Session.Mode == DataMode.Demo)
+    {
+        <div class="demo-banner" role="status" data-testid="demo-banner">
+            <strong>Demo data</strong> — synthetic repositories, runs and logs. Nothing is loaded from GitHub.
+            @if (Session.LiveAvailable) { <button type="button" class="linklike" @onclick="() => Session.SetMode(DataMode.Live)">Switch to live GitHub</button> }
+            else { <a href="settings">Connect GitHub</a> }
         </div>
+    }
+    else
+    {
+        <div class="live-banner" role="status">Live GitHub data (read-only)</div>
+    }
 
-        <article class="content px-4">
-            @Body
-        </article>
+    <header class="topbar">
+        <a class="brand" href="" aria-label="CIWorkbench home">
+            <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><path d="M16 3l11 6v14l-11 6-11-6V9z" fill="#2563eb"/><path d="M11 16.2l3.6 3.6 6.6-7" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>CIWorkbench</span>
+        </a>
+        <label class="select-field"><span>Organization</span>
+            <select aria-label="Organization or account" @onchange="OnOrg">
+                <option value="" selected="@(string.IsNullOrEmpty(Org))">All accounts</option>
+                @foreach (var o in Owners) { <option value="@o" selected="@(o == Org)">@o</option> }
+            </select>
+        </label>
+        <label class="select-field"><span>Repository</span>
+            <select aria-label="Repository" @onchange="OnRepo" data-testid="repo-select">
+                <option value="" selected="@(Session.Selected is null)">@(Session.Discovery == DiscoveryState.Running ? $"Select… ({Session.Repositories.Count} found so far)" : "Select repository…")</option>
+                @foreach (var r in ReposInOrg) { <option value="@r.Ref.FullName" selected="@(Session.Selected.Equals(r.Ref))">@(string.IsNullOrEmpty(Org) ? r.Ref.FullName : r.Ref.Name)</option> }
+            </select>
+        </label>
+        <div class="global-search">
+            <input id="ciw-global-search" type="search" placeholder="Search workflows, runs, jobs, or keywords…" aria-label="Search the active repository"
+                   value="@Signals.SearchText" @oninput="e => Signals.SetSearch(e.Value?.ToString())" />
+            <kbd>Ctrl K</kbd>
+        </div>
+        <button type="button" class="ciw-btn" @onclick="Signals.RequestRefresh" disabled="@(Session.Selected is null)" aria-label="Refresh active repository" title="Refresh (throttled)">↻ Refresh</button>
+        <span class="updated ciw-muted" aria-live="polite">@(Signals.IsLoading ? "Refreshing…" : Signals.LastUpdated is null ? "Not loaded" : $"Updated {Fmt.Ago(Signals.LastUpdated, Time.GetUtcNow())}")</span>
+        <DensityToggle />
+        <a class="conn @ConnClass" href="settings" title="@ConnTitle" data-testid="connection-status"><i></i>@ConnLabel</a>
+    </header>
+
+    <nav class="sidebar" aria-label="Main">
+        <NavLink href="" Match="NavLinkMatch.All">Overview</NavLink>
+        <NavLink href="repositories">Repositories <span class="ciw-count">@Session.Repositories.Count@(Session.Discovery == DiscoveryState.Running ? "+" : "")</span></NavLink>
+        <NavLink href="@GroupsHref" Match="NavLinkMatch.All">Workflow Groups</NavLink>
+        <NavLink href="@FailuresHref">Failure Series</NavLink>
+        <NavLink href="settings">Settings</NavLink>
+        @if (Session.Recent.Count > 0)
+        {
+            <h6>Recent repositories</h6>
+            @foreach (var r in Session.Recent)
+            {
+                <a class="recent @(Session.Selected.Equals(r) ? "active" : "")" href="repo/@r.Owner/@r.Name">@r.Name</a>
+            }
+        }
+    </nav>
+
+    <main class="content" id="main">
+        @Body
     </main>
+
+    <aside class="inspector-pane" aria-label="Run inspector panel" data-testid="inspector-pane">
+        <div class="insp-bar">
+            <button type="button" class="ciw-iconbtn" @onclick="() => Prefs.InspectorOpen = !Prefs.InspectorOpen" aria-expanded="@(Prefs.InspectorOpen).ToString().ToLowerInvariant()" aria-controls="inspector-body" data-testid="inspector-toggle"
+                    title="@(Prefs.InspectorOpen ? "Collapse inspector" : "Open inspector")">
+                @(Prefs.InspectorOpen ? "›" : "‹")<span class="insp-label">Inspector</span>
+            </button>
+        </div>
+        @if (Prefs.InspectorOpen)
+        {
+            <div id="inspector-body" class="insp-body"><RunInspector Selection="Inspector.Selection" /></div>
+        }
+    </aside>
+    @if (Prefs.InspectorOpen) { <div class="scrim" @onclick="() => Prefs.InspectorOpen = false"></div> }
 </div>
 
-<div id="blazor-error-ui" data-nosnippet>
-    An unhandled error has occurred.
-    <a href="." class="reload">Reload</a>
-    <span class="dismiss">🗙</span>
-</div>
+@code {
+    private string Org { get; set; } = "";
+    private Timer? _tick;
+    private bool _prefsLoaded;
+
+    private IEnumerable<string> Owners => Session.Repositories.Select(r => r.Ref.Owner).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase);
+    private IEnumerable<RepositoryInfo> ReposInOrg => Session.Repositories.Where(r => string.IsNullOrEmpty(Org) || r.Ref.Owner.Equals(Org, StringComparison.OrdinalIgnoreCase)).OrderBy(r => r.Ref.FullName, StringComparer.OrdinalIgnoreCase).Take(500);
+    private string GroupsHref => Session.Selected is { } s ? $"repo/{s.Owner}/{s.Name}" : "repositories";
+    private string FailuresHref => Session.Selected is { } s ? $"repo/{s.Owner}/{s.Name}/failures" : "repositories";
+
+    private string ConnClass => Session.Mode == DataMode.Demo ? "demo" : Session.Connection is null ? "unknown" : Session.Connection.IsHealthy ? "ok" : "bad";
+    private string ConnLabel => Session.Mode == DataMode.Demo ? "Demo mode" : Session.Tracker.IsThrottled(Time.GetUtcNow()) ? "Rate limited" : Session.Connection is null ? "GitHub: not verified" : Session.Connection.IsHealthy ? $"GitHub: {Session.Connection.Account}" : "GitHub: problem";
+    private string ConnTitle => Session.Mode == DataMode.Demo ? "Demo data. No credentials are used." : "Open Settings to verify permissions.";
+
+    protected override void OnInitialized()
+    {
+        Session.Changed += OnChanged; Signals.Changed += OnChanged; Prefs.Changed += OnPrefsChanged; Inspector.Changed += OnInspector;
+        _tick = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(20));
+        if (Session.Discovery == DiscoveryState.Idle) _ = Session.StartDiscoveryAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var density = await JS.InvokeAsync<string?>("ciw.getPref", "density");
+            var inspector = await JS.InvokeAsync<string?>("ciw.getPref", "inspector");
+            var expanded = await JS.InvokeAsync<string?>("ciw.getPref", "expanded");
+            if (density is "compact") Prefs.Density = Density.Compact;
+            if (inspector is "open") Prefs.InspectorOpen = true;
+            if (!string.IsNullOrEmpty(expanded))
+            {
+                try { Prefs.RestoreExpanded(System.Text.Json.JsonSerializer.Deserialize<string[]>(expanded) ?? []); } catch (System.Text.Json.JsonException) { /* ignore corrupt preference */ }
+            }
+        }
+        catch (JSException) { /* storage blocked: defaults apply */ }
+        catch (InvalidOperationException) { }
+        _prefsLoaded = true;
+        StateHasChanged();
+    }
+
+    private void OnChanged()
+    {
+        if (Session.Selected is { } s) Org = s.Owner;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnInspector() { if (Inspector.Selection is not null && !Prefs.InspectorOpen) Prefs.InspectorOpen = true; InvokeAsync(StateHasChanged); }
+
+    private void OnPrefsChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            if (!_prefsLoaded) return;
+            try
+            {
+                await JS.InvokeVoidAsync("ciw.setPref", "density", Prefs.Density == Density.Compact ? "compact" : "comfortable");
+                await JS.InvokeVoidAsync("ciw.setPref", "inspector", Prefs.InspectorOpen ? "open" : "closed");
+                await JS.InvokeVoidAsync("ciw.setPref", "expanded", System.Text.Json.JsonSerializer.Serialize(Prefs.ExpandedKeys.Take(500)));
+            }
+            catch (JSException) { }
+            catch (InvalidOperationException) { }
+        });
+    }
+
+    private void OnOrg(ChangeEventArgs e) => Org = e.Value?.ToString() ?? "";
+
+    private void OnRepo(ChangeEventArgs e)
+    {
+        var v = e.Value?.ToString();
+        if (string.IsNullOrEmpty(v)) return;
+        var r = RepoRef.Parse(v);
+        Signals.SetSearch(null);
+        Nav.NavigateTo($"repo/{r.Owner}/{r.Name}");
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Session.Changed -= OnChanged; Signals.Changed -= OnChanged; Prefs.Changed -= OnPrefsChanged; Inspector.Changed -= OnInspector;
+        _tick?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

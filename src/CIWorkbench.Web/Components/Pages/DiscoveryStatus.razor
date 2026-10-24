@@ -1,0 +1,37 @@
+@implements IDisposable
+@inject AppSession Session
+
+<div class="discovery" role="status" aria-live="polite" data-testid="discovery-status">
+    @switch (Session.Discovery)
+    {
+        case DiscoveryState.Running:
+            <p><strong>@Session.Repositories.Count</strong> repositories found so far · page @Session.PagesLoaded@(Session.EstimatedPages is { } p ? $" of ~{p}" : "")</p>
+            @if (Session.EstimatedPages is { } est) { <progress max="@est" value="@Session.PagesLoaded" aria-label="Discovery progress"></progress> }
+            else { <progress aria-label="Discovery in progress (total unknown)"></progress> }
+            <p class="ciw-muted">You can search and open a repository before discovery finishes.</p>
+            <button class="ciw-btn sm" @onclick="Session.CancelDiscovery">Cancel discovery</button>
+            break;
+        case DiscoveryState.Completed:
+            <p><strong>@Session.Repositories.Count</strong> repositories accessible.</p>
+            <button class="ciw-btn sm" @onclick="Session.StartDiscoveryAsync">Rediscover</button>
+            break;
+        case DiscoveryState.Cancelled:
+            <p>Discovery cancelled with <strong>@Session.Repositories.Count</strong> repositories found. The list may be incomplete.</p>
+            <button class="ciw-btn sm" @onclick="Session.StartDiscoveryAsync">Restart discovery</button>
+            break;
+        case DiscoveryState.Failed:
+            <p class="bad">Discovery failed: @Session.DiscoveryError</p>
+            <p class="ciw-muted">@Session.Repositories.Count repositories were loaded before the failure.</p>
+            <button class="ciw-btn sm" @onclick="Session.StartDiscoveryAsync">Retry</button>
+            break;
+        default:
+            <p class="ciw-muted">Not started.</p>
+            break;
+    }
+</div>
+
+@code {
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    protected override void OnInitialized() => Session.Changed += OnChanged;
+    public void Dispose() => Session.Changed -= OnChanged;
+}
