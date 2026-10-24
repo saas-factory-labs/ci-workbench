@@ -1,3 +1,4 @@
+using CIWorkbench.Core.Grouping;
 using CIWorkbench.Core.Models;
 
 namespace CIWorkbench.Core.Demo;
@@ -232,7 +233,7 @@ public sealed class DemoCiProvider : ICiProvider
             ];
         }
         _runs[repo] = runs;
-        _files[(repo, ".ciworkbench.yml")] = """
+        _files[(repo, GroupConfigContract.PreferredPath)] = """
             groups:
               - name: CI
                 description: Build, test and publish the actor

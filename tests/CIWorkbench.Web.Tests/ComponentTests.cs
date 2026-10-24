@@ -208,7 +208,7 @@ internal sealed class ConfigOverrideProvider(ICiProvider inner, string configYam
     public Task<IReadOnlyList<WorkflowRunInfo>> ListWorkflowRunsAsync(RepoRef repo, long workflowId, int max, CancellationToken ct) => inner.ListWorkflowRunsAsync(repo, workflowId, max, ct);
     public Task<IReadOnlyList<JobInfo>> ListJobsAsync(RepoRef repo, long runId, CancellationToken ct) => inner.ListJobsAsync(repo, runId, ct);
     public Task<string?> GetJobLogTailAsync(RepoRef repo, long jobId, int maxBytes, CancellationToken ct) => inner.GetJobLogTailAsync(repo, jobId, maxBytes, ct);
-    public Task<string?> GetFileAsync(RepoRef repo, string path, CancellationToken ct) => path == ".ciworkbench.yml" ? Task.FromResult<string?>(configYaml) : inner.GetFileAsync(repo, path, ct);
+    public Task<string?> GetFileAsync(RepoRef repo, string path, CancellationToken ct) => path == ".github/ciworkbench.yml" ? Task.FromResult<string?>(configYaml) : inner.GetFileAsync(repo, path, ct);
     public Task<RateLimitInfo?> GetRateLimitAsync(CancellationToken ct) => inner.GetRateLimitAsync(ct);
     public Task<ConnectionReport> CheckConnectionAsync(RepoRef? sampleRepo, CancellationToken ct) => inner.CheckConnectionAsync(sampleRepo, ct);
 }
@@ -229,7 +229,7 @@ public class ConfigDiagnosticsUiTests : BunitContext
         await cut.WaitForAssertionAsync(() => Assert.NotEmpty(cut.FindAll("[data-group]")), TimeSpan.FromSeconds(10));
 
         var notices = cut.WaitForElements(".ciw-notice.warn", TimeSpan.FromSeconds(5)).Select(e => e.TextContent).ToList();
-        Assert.Contains(notices, n => n.Contains(".ciworkbench.yml line 3") && n.Contains("did you mean 'workflows'"));
+        Assert.Contains(notices, n => n.Contains(".github/ciworkbench.yml line 3") && n.Contains("did you mean 'workflows'"));
         Assert.Contains(notices, n => n.Contains("was skipped") && n.Contains("'CI'"));
         Assert.Contains(notices, n => n.Contains("line 7") && n.Contains("missing.yml") && n.Contains("matches no workflow"));
 

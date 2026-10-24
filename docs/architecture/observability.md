@@ -24,7 +24,7 @@ Aspire is **optional**. `CIWorkbench.Web` runs standalone; `CIWorkbench.AppHost`
 | `ciworkbench.github.workflow_load.duration` (s) | `outcome` |
 | `ciworkbench.github.ratelimit.remaining` (gauge) | none |
 
-Each GitHub request also produces one `github.request` span (`github.operation`, status code, error class). Optional files that do not exist (for example `.ciworkbench.yml`) are not counted as errors.
+Each GitHub request also produces one `github.request` span (`github.operation`, status code, error class). Optional files that do not exist (for example `.github/ciworkbench.yml`) are not counted as errors.
 
 ## What is never recorded
 

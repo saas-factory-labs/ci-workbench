@@ -8,7 +8,7 @@
 
 GitHub Actions lists workflows flat and per run. With 40 workflows that is hard to navigate, and with a nightly job that keeps failing you cannot see *what* keeps failing. CIWorkbench adds:
 
-- **Workflow groups**: collapsible, hierarchical groups from a central `.ciworkbench.yml` or a `# ci-workbench-group: Security` comment in the workflow file.
+- **Workflow groups**: collapsible, hierarchical groups from a central `.github/ciworkbench.yml` or a `# ci-workbench-group: Security` comment in the workflow file.
 - **Recurring failure series**: deterministic fingerprinting (workflow, job, failed step, normalized error signature) that groups repeated failures, shows streaks, and separates unrelated errors in the same job.
 - **Run Inspector**: collapsible side panel with jobs, steps, on-demand logs, a link to the original run and a safe **Copy context for coding agent** action (redacted, bounded, never sent anywhere).
 - **Honest onboarding**: verifies each permission with the real API call, shows progressive repository discovery, rate-limit state and exact failure reasons.
@@ -81,7 +81,7 @@ dotnet test tests/CIWorkbench.Core.Tests; dotnet test tests/CIWorkbench.GitHub.T
 
 ## Configuring groups
 
-Add an optional `.ciworkbench.yml` to the root of the repository's default branch. The first line is a [YAML Language Server](https://github.com/redhat-developer/yaml-language-server) directive that points your editor at the published schema, so you get validation and autocompletion without copying any file:
+Add an optional **`.github/ciworkbench.yml`** to the repository's default branch (the legacy root `.ciworkbench.yml` is still read when the `.github` file does not exist; if both exist, `.github/ciworkbench.yml` wins and the legacy file is ignored). The first line is a [YAML Language Server](https://github.com/redhat-developer/yaml-language-server) directive that points your editor at the published schema, so you get validation and autocompletion without copying any file:
 
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/saas-factory-labs/ci-workbench/main/schemas/ciworkbench.schema.json

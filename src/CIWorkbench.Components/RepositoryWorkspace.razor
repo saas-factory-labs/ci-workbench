@@ -184,7 +184,7 @@
     private Dictionary<string, string?> _commentGroups = [];
     private GroupingResult _grouping = new([], []);
     private List<string> _warnings = [];
-    private List<string> _configMessages = [];          // diagnostics of .ciworkbench.yml itself (with line numbers)
+    private List<string> _configMessages = [];          // diagnostics of the central config file itself (with line numbers)
 
     /// <summary>Config problems first, then grouping checks against the real workflow list (only once comment groups finished resolving), then other notices.</summary>
     private IEnumerable<string> AllWarnings =>
@@ -253,8 +253,9 @@
             _stage = "Loading recent runs…"; await InvokeAsync(StateHasChanged);
             _runs = await runsTask;
             var cfg = await cfgTask;
-            _config = cfg.Config;
-            _configMessages = cfg.Diagnostics.Select(d => d.ToString()).ToList();
+            _config = cfg.Result.Config;
+            var source = cfg.SourcePath ?? GroupConfigContract.PreferredPath;
+            _configMessages = cfg.Result.Diagnostics.Select(d => d.ToString(source)).ToList();
             _workflows = WithOrphans(wfs, _runs);
             Recompute();
             SeedSmallRepo();
@@ -276,14 +277,7 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task<GroupConfigParseResult> ReadConfigAsync(RepoRef repo, CancellationToken ct)
-    {
-        try { return GroupConfigParser.Parse(await Provider.GetFileAsync(repo, GroupConfigContract.FileName, ct)); }
-        catch (CiProviderException ex)
-        {
-            return new GroupConfigParseResult(new GroupConfig(), [new ConfigDiagnostic(ConfigSeverity.Warning, "unreadable", $"could not be read ({ex.Message}); using workflow comments and defaults")]);
-        }
-    }
+    private Task<GroupConfigLoadResult> ReadConfigAsync(RepoRef repo, CancellationToken ct) => GroupConfigLoader.LoadAsync(Provider, repo, ct);
 
     /// <summary>Runs whose workflow is not in the workflow list still appear, under their own entry, so nothing silently disappears.</summary>
     private static IReadOnlyList<WorkflowInfo> WithOrphans(IReadOnlyList<WorkflowInfo> wfs, IReadOnlyList<WorkflowRunInfo> runs)

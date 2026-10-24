@@ -1,12 +1,22 @@
 namespace CIWorkbench.Core.Grouping;
 
 /// <summary>
-/// The published contract of <c>.ciworkbench.yml</c>. <c>schemas/ciworkbench.schema.json</c> describes the same contract for editors;
+/// The published contract of <c>.github/ciworkbench.yml</c> (or the legacy root <c>.ciworkbench.yml</c>). <c>schemas/ciworkbench.schema.json</c> describes the same contract for editors;
 /// the patterns and limits below are repeated verbatim there, and a unit test fails if the two drift apart.
 /// </summary>
 public static class GroupConfigContract
 {
-    public const string FileName = ".ciworkbench.yml";
+    /// <summary>Preferred location: the repository's <c>.github</c> folder.</summary>
+    public const string PreferredPath = ".github/ciworkbench.yml";
+
+    /// <summary>Legacy location (repository root), still read when the preferred file does not exist.</summary>
+    public const string LegacyPath = ".ciworkbench.yml";
+
+    /// <summary>Lookup order; the first file that exists is used.</summary>
+    public static readonly IReadOnlyList<string> SearchPaths = [PreferredPath, LegacyPath];
+
+    /// <summary>Default file name used in diagnostics when the source file is not known.</summary>
+    public const string FileName = LegacyPath;
     public const int CurrentVersion = 1;
 
     /// <summary>The public schema URL (GitHub Raw, default branch). It only resolves once the schema is merged to that branch.</summary>
@@ -39,10 +49,13 @@ public enum ConfigSeverity
 /// <param name="Code">Stable machine-readable identifier, e.g. <c>unknown-field</c>.</param>
 public sealed record ConfigDiagnostic(ConfigSeverity Severity, string Code, string Message, int? Line = null)
 {
-    public static string Format(int? line, string message) => $"{GroupConfigContract.FileName}{(line is { } l ? $" line {l}" : "")}: {message}";
+    public static string Format(int? line, string message, string fileName = GroupConfigContract.FileName) => $"{fileName}{(line is { } l ? $" line {l}" : "")}: {message}";
 
     /// <summary>User-facing text, e.g. ".ciworkbench.yml line 7: unknown field 'workflow' (did you mean 'workflows'?)".</summary>
     public override string ToString() => Format(Line, Message);
+
+    /// <summary>Same text, naming the file the configuration was actually read from.</summary>
+    public string ToString(string fileName) => Format(Line, Message, fileName);
 }
 
 public sealed class GroupConfigEntry

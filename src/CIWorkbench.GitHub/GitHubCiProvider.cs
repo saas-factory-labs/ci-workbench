@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using CIWorkbench.Core.Grouping;
 using CIWorkbench.Core.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -231,9 +232,10 @@ public sealed class GitHubCiProvider(
                 "Grant the fine-grained permission Actions: Read-only."));
             checks.Add(await Run("Contents read", async () =>
             {
-                var f = await GetFileAsync(t, ".ciworkbench.yml", ct);
-                return f is null ? $"Contents readable ({t} has no .ciworkbench.yml, which is fine)." : $"Read .ciworkbench.yml from {t}.";
-            }, "Grant Contents: Read-only to read .ciworkbench.yml and workflow comments (grouping by YAML comment will be unavailable)."));
+                foreach (var path in GroupConfigContract.SearchPaths)
+                    if (await GetFileAsync(t, path, ct) is not null) return $"Read {path} from {t}.";
+                return $"Contents readable ({t} has no {GroupConfigContract.PreferredPath}, which is fine).";
+            }, "Grant Contents: Read-only to read .github/ciworkbench.yml and workflow comments (grouping by YAML comment will be unavailable)."));
         }
         return new ConnectionReport(account, checks);
     }

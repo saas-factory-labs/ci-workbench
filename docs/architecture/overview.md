@@ -13,7 +13,7 @@ Web (host)  ──►  Components (RCL)  ──►  Core  ◄──  GitHub (pro
 ## Loading strategy
 
 1. Repository discovery streams pages; UI is usable before it ends; cancellable.
-2. Opening a repo: workflows + one bounded repo-wide runs request + `.ciworkbench.yml` in parallel.
+2. Opening a repo: workflows + one bounded repo-wide runs request + `.github/ciworkbench.yml` (falling back to `.ciworkbench.yml`) in parallel.
 3. YAML-comment groups need file contents: fetched after first render for workflows not placed by central config, concurrency 4. The UI shows "resolving groups".
 4. Jobs load when a workflow is expanded; logs only on click. Failure analysis is bounded (newest 15 failed runs per workflow). In demo mode and for repositories with 3 workflows or fewer it runs automatically for up to 3 workflows with at least two failures; for large live repositories it is lazy: the first view opens the most relevant workflow and analyzes only that one; other workflows are analyzed when expanded, or via "Find recurring failures" (at most 5). When the shared repo-wide run window is full, selecting a workflow with fewer than 10 runs in it fetches one bounded page (30) of that workflow's own history first.
 5. Polling: 30 s in live mode with ETags (a 304 is cheap), manual refresh throttled.
