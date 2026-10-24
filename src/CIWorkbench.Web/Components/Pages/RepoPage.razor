@@ -9,7 +9,7 @@
 <PageTitle>@Owner/@Name · CIWorkbench</PageTitle>
 <h1 class="sr-only">@Owner/@Name @(IsFailures ? "failure series" : "workflows")</h1>
 
-<RepositoryWorkspace Repo="_repo" View="@(IsFailures ? WorkspaceView.Failures : WorkspaceView.Groups)"
+<RepositoryWorkspace Repo="_repo" ShowSearch="false" View="@(IsFailures ? WorkspaceView.Failures : WorkspaceView.Groups)"
                      Description="@Info?.Description" DefaultBranch="@Info?.DefaultBranch"
                      SelectedRunId="Inspector.Selection?.Run.Id" MaxRuns="@(Session.Mode == DataMode.Demo ? 250 : 100)"
                      OnRunSelected="Inspector.Select" OnViewFailures="GoFailures">

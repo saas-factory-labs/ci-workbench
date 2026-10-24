@@ -108,6 +108,7 @@ public static class Fmt
     public static string StateClass(RunState s) => s switch
     {
         RunState.Success => "ok", RunState.Failure => "fail", RunState.Cancelled or RunState.Skipped or RunState.Neutral => "muted",
+        RunState.Queued => "wait",
         _ => "active",
     };
 }

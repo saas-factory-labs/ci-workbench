@@ -24,24 +24,36 @@
     else
     {
         <header class="ciw-repo-head">
-            <span class="ciw-repo-avatar" aria-hidden="true"><Icon Name="repo" Size="26" /></span>
             <div class="ciw-repo-id">
                 <h2 class="ciw-repo-title">@Repo.Name</h2>
-                <p class="ciw-repo-owner ciw-muted">@Repo.Owner</p>
-                @if (!string.IsNullOrWhiteSpace(Description)) { <p class="ciw-repo-desc ciw-muted">@Description</p> }
+                <span class="ciw-repo-owner">@Repo.Owner</span>
+                @if (!string.IsNullOrWhiteSpace(Description)) { <p class="ciw-repo-desc">@Description</p> }
+                <p class="ciw-meta" data-testid="repo-meta">
+                    <span><strong>@_workflows.Count</strong> @(_workflows.Count == 1 ? "workflow" : "workflows")</span>
+                    <span>Latest run <strong>@Fmt.Ago(_runs.FirstOrDefault()?.SortTime, Time.GetUtcNow())</strong>@(_summary.Active > 0 ? $" · {_summary.Active} active" : "")</span>
+                    <span><Icon Name="branch" Size="13" /> <strong>@(DefaultBranch ?? MostActiveBranch)</strong> @(DefaultBranch is null ? "most active branch" : "default branch")</span>
+                </p>
             </div>
             <div class="ciw-head-actions">@HeaderActions</div>
         </header>
 
-        <div class="ciw-summary" aria-label="Repository summary">
-            <div class="ciw-stat">
-                <StatusIcon State="@(_summary.SuccessRate is { } sr && sr < 0.7 ? RunState.Failure : RunState.Success)"/>
-                <div><strong>@Fmt.Percent(_summary.SuccessRate) success rate</strong><span>Last @_summary.Total runs · @RangeText</span></div>
-            </div>
-            <div class="ciw-stat"><Icon Name="clock" Size="22" Class="ciw-accent" /><div><strong>@Fmt.Duration(_avgDuration)</strong><span>Average duration</span></div></div>
-            <div class="ciw-stat"><Icon Name="branch" Size="22" Class="ciw-accent" /><div><strong>@(DefaultBranch ?? MostActiveBranch)</strong><span>@(DefaultBranch is null ? "Most active branch" : "Default branch")</span></div></div>
-            <div class="ciw-stat"><Icon Name="calendar" Size="22" Class="ciw-accent" /><div><strong>@Fmt.Ago(_runs.FirstOrDefault()?.SortTime, Time.GetUtcNow())</strong><span>Latest run@(_summary.Active > 0 ? $" · {_summary.Active} active" : "")</span></div></div>
-            <div class="ciw-stat"><Icon Name="chart" Size="22" Class="ciw-accent" /><div><strong>@_workflows.Count</strong><span>Total workflows</span></div></div>
+        <div class="ciw-kpis" aria-label="Repository health" data-testid="kpis">
+            <section class="ciw-kpi" aria-label="Success rate" data-kpi="success">
+                <h3>Success rate</h3>
+                <p class="ciw-kpi-value">@Fmt.Percent(_success.Rate)@if (_success.Trend is { } st) { <span class="ciw-trend @(st.Delta >= 0 ? "up" : "down")" title="Newer @st.RecentCount vs older @st.EarlierCount finished runs in the loaded window">@(st.Delta >= 0 ? "▲" : "▼") @Math.Abs(Math.Round(st.Delta)) pts</span>}</p>
+                <div class="ciw-kpi-bar" role="img" aria-label="@Fmt.Percent(_success.Rate) of finished runs succeeded"><span style="width:@(Math.Round((_success.Rate ?? 0) * 100))%"></span></div>
+                <p class="ciw-kpi-sub">@(_success.Rate is null ? "No finished runs yet" : $"{_success.Succeeded} of {_success.Succeeded + _success.Failed} finished runs") · last @_success.RunsInScope runs</p>
+            </section>
+            <section class="ciw-kpi" aria-label="Needs attention" data-kpi="attention">
+                <h3>Needs attention</h3>
+                <p class="ciw-kpi-value @(_attention.FailingNow > 0 ? "bad" : "good")">@_attention.FailingNow<span class="ciw-kpi-unit">@(_attention.FailingNow == 1 ? "workflow failing now" : "workflows failing now")</span></p>
+                <p class="ciw-kpi-sub">@AttentionSub</p>
+            </section>
+            <section class="ciw-kpi" aria-label="Average duration" data-kpi="duration">
+                <h3>Average duration</h3>
+                <p class="ciw-kpi-value">@Fmt.Duration(_duration.Average)@if (_duration.Trend is { } dt) { <span class="ciw-trend neutral" title="Newer @dt.RecentCount vs older @dt.EarlierCount runs in the loaded window">@(dt.Delta >= 0 ? "▲" : "▼") @Fmt.Duration(TimeSpan.FromSeconds(Math.Abs(dt.Delta)))</span> }</p>
+                <p class="ciw-kpi-sub">@(_duration.Samples == 0 ? "No completed runs yet" : $"{_duration.Samples} succeeded or failed runs · cancelled and active excluded")</p>
+            </section>
         </div>
 
         @foreach (var w in AllWarnings)
@@ -51,38 +63,42 @@
 
         @if (TotalSeries > 0 && !_bannerDismissed)
         {
-            <div class="ciw-banner" role="alert" data-testid="failure-banner">
-                <span class="ciw-banner-icon" aria-hidden="true"><Icon Name="shield-alert" Size="22" /></span>
+            <div class="ciw-banner" role="status" data-testid="failure-banner">
+                <span class="ciw-banner-icon" aria-hidden="true"><Icon Name="shield-alert" Size="18" /></span>
                 <div class="ciw-banner-text">
                     <strong>Recurring failures detected@(BannerWorkflows)</strong>
-                    <span>@TotalSeries failure @(TotalSeries == 1 ? "series" : "series") with @DistinctFailedRuns failed runs in the loaded history. Investigate to prevent delayed deployments.</span>
+                    <span>@TotalSeries failure @(TotalSeries == 1 ? "series" : "series") across @DistinctFailedRuns failed runs in the loaded history.</span>
                 </div>
                 @if (View != WorkspaceView.Failures && OnViewFailures.HasDelegate)
                 {
-                    <button type="button" class="ciw-btn sm danger" @onclick="() => OnViewFailures.InvokeAsync()" data-action="view-failures">View failure series</button>
+                    <button type="button" class="ciw-btn sm" @onclick="() => OnViewFailures.InvokeAsync()" data-action="view-failures">View failure series</button>
                 }
-                <button type="button" class="ciw-iconbtn" aria-label="Dismiss" @onclick="() => _bannerDismissed = true"><Icon Name="x" Size="18" /></button>
+                <button type="button" class="ciw-iconbtn" aria-label="Dismiss" @onclick="() => _bannerDismissed = true"><Icon Name="x" Size="16" /></button>
             </div>
         }
 
         <div class="ciw-toolbar">
-            <div class="ciw-searchbox">
-                <Icon Name="search" Size="17" />
-                <input type="search" placeholder="Filter workflows and runs in this repository…" aria-label="Filter workflows and runs in this repository" title="Same filter as the top search box, scoped to this repository"
-                       value="@Search" @oninput="e => Signals.SetSearch(e.Value?.ToString())" />
-            </div>
-            <div class="ciw-chips" role="group" aria-label="Filter workflows by latest status">
+            @if (ShowSearch)
+            {
+                <div class="ciw-searchbox">
+                    <Icon Name="search" Size="16" />
+                    <input type="search" placeholder="Filter workflows…" aria-label="Filter workflows and runs in this repository" title="Same filter as the top search box, scoped to this repository"
+                           value="@Search" @oninput="e => Signals.SetSearch(e.Value?.ToString())" />
+                </div>
+            }
+            <div class="ciw-chips" role="group" aria-label="Filter workflows by status">
                 @foreach (var f in Filters)
                 {
-                    <button type="button" class="ciw-fchip @(_filter == f ? "on" : "")" aria-pressed="@(_filter == f ? "true" : "false")" @onclick="() => _filter = f" data-filter="@f">
+                    <button type="button" class="ciw-fchip @(_filter == f ? "on" : "") @(f == "Scheduled" ? "sep" : "")" aria-pressed="@(_filter == f ? "true" : "false")" @onclick="() => SetFilter(f)" data-filter="@f" title="@FilterHint(f)">
                         @switch (f)
                         {
-                            case "Failed": <i class="dot red"></i> break;
+                            case "Attention": <i class="dot red"></i> break;
+                            case "Failed": <i class="dot red hollow"></i> break;
                             case "Running": <i class="dot blue"></i> break;
                             case "Succeeded": <i class="dot green"></i> break;
-                            case "Scheduled": <Icon Name="clock" Size="14" /> break;
+                            case "Scheduled": <Icon Name="clock" Size="13" /> break;
                         }
-                        @f <span class="n">@CountFor(f)</span>
+                        @FilterLabel(f) <span class="n">@CountFor(f)</span>
                     </button>
                 }
             </div>
@@ -105,7 +121,10 @@
             </div>
         </div>
 
-        <p class="ciw-scope" data-testid="success-scope">Success % = succeeded ÷ finished runs (cancelled and skipped excluded) in the loaded window: @_runs.Count runs, @RangeText.</p>
+        @if (_filter == "Attention")
+        {
+            <p class="ciw-scope" data-testid="attention-note">Attention view: @_attention.FailingNow failing now (recurring first), then @(_attention.Stale) stale failure@(_attention.Stale == 1 ? "" : "s") and @_attention.Recovered recovered. Healthy workflows are hidden; choose All to see them.</p>
+        }
 
         @if (View == WorkspaceView.Groups)
         {
@@ -159,7 +178,7 @@
 </CascadingValue>
 
 @code {
-    private static readonly string[] Filters = ["All", "Failed", "Running", "Succeeded", "Scheduled"];
+    private static readonly string[] Filters = ["All", "Attention", "Failed", "Running", "Succeeded", "Scheduled"];
 
     [Parameter, EditorRequired] public RepoRef Repo { get; set; }
     [Parameter] public WorkspaceView View { get; set; } = WorkspaceView.Groups;
@@ -167,6 +186,8 @@
     [Parameter] public string? DefaultBranch { get; set; }
     [Parameter] public int MaxRuns { get; set; } = 100;
     [Parameter] public bool AutoRefresh { get; set; } = true;
+    /// <summary>Hosts that already offer a global search (sharing <see cref="WorkspaceSignals"/>) can hide the workspace's own filter box.</summary>
+    [Parameter] public bool ShowSearch { get; set; } = true;
     [Parameter] public TimeSpan RefreshInterval { get; set; } = TimeSpan.FromSeconds(30);
     [Parameter] public long? SelectedRunId { get; set; }
     [Parameter] public RenderFragment? HeaderActions { get; set; }
@@ -190,7 +211,6 @@
     private IEnumerable<string> AllWarnings =>
         _configMessages.Concat(_resolvingGroups ? [] : _grouping.Warnings).Concat(_warnings).Distinct();
     private RunSummary _summary = new(0, 0, 0, 0);
-    private TimeSpan? _avgDuration;
     private string? _error;
     private string _stage = "Loading workflows…";
     private bool _loading, _analyzing, _resolvingGroups, _bannerDismissed, _bestOpened;
@@ -202,6 +222,24 @@
     private bool _timerStarted;
 
     private string? Search => Signals.SearchText;
+
+    // ---- KPIs (definitions live in CIWorkbench.Core.Health.Kpis / WorkflowHealthAnalyzer) ----
+    private SuccessRateKpi _success => Kpis.SuccessRate(_runs);
+    private DurationKpi _duration => Kpis.AverageDuration(_runs);
+    private AttentionKpi _attention => Kpis.Attention(_workflows!.Select(HealthOf));
+    private string AttentionSub
+    {
+        get
+        {
+            var a = _attention;
+            var recurring = _workflows!.Count(w => HealthOf(w) is { NeedsAttention: true, Recurring: true });
+            var parts = new List<string>();
+            if (recurring > 0) parts.Add($"{recurring} recurring");
+            if (a.Recovered > 0) parts.Add($"{a.Recovered} recovered");
+            if (a.Stale > 0) parts.Add($"{a.Stale} stale (older than {(int)WorkflowHealthAnalyzer.StaleAfter.TotalDays} days)");
+            return parts.Count == 0 ? $"All {a.Total} workflows healthy" : string.Join(" · ", parts) + $" · of {a.Total} workflows";
+        }
+    }
     private int TotalSeries => _series.Values.Sum(a => a.Recurring.Count);
     private int DistinctFailedRuns => _series.Values.SelectMany(a => a.Recurring).SelectMany(s => s.Occurrences).Select(o => o.Run.Id).Distinct().Count();
     private string RangeText => _runs.Count == 0 ? "no runs" : $"{_runs.Min(r => r.SortTime).ToString("MMM d", System.Globalization.CultureInfo.InvariantCulture)} – {_runs.Max(r => r.SortTime).ToString("MMM d", System.Globalization.CultureInfo.InvariantCulture)}";
@@ -291,8 +329,6 @@
     private void Recompute()
     {
         _summary = RunSummary.From(_runs);
-        var done = _runs.Where(r => r.Duration is not null).ToList();
-        _avgDuration = done.Count == 0 ? null : TimeSpan.FromSeconds(done.Average(r => r.Duration!.Value.TotalSeconds));
         // Grouping warnings are recomputed on every pass (e.g. after YAML-comment groups resolve), so stale ones never linger.
         _grouping = WorkflowGroupResolver.Resolve(_workflows!, _config, _commentGroups);
     }
@@ -436,18 +472,44 @@
         _history.TryGetValue(w.Id, out var h) ? h : _runs.Where(r => r.WorkflowId == w.Id).OrderByDescending(r => r.SortTime).ToList();
 
     private RunState? LatestStateOrNull(WorkflowInfo w) => RunsFor(w).FirstOrDefault()?.State;
-    internal RunState LatestState(WorkflowInfo w) => LatestStateOrNull(w) ?? RunState.Neutral;
+    internal RunState? LatestState(WorkflowInfo w) => LatestStateOrNull(w);
 
-    private bool MatchesFilter(WorkflowInfo w, string f) => f switch
+    /// <summary>Contextual health of one workflow: newest finished run on the default branch, recovery and recurrence. See <see cref="WorkflowHealthAnalyzer"/>.</summary>
+    internal WorkflowHealth HealthOf(WorkflowInfo w) =>
+        WorkflowHealthAnalyzer.Assess(RunsFor(w), DefaultBranch, _series.TryGetValue(w.Path, out var a) ? a.Recurring.Count > 0 : null, Time.GetUtcNow());
+
+    internal string? NonDefaultBranch(WorkflowRunInfo? r) => r is not null && r.Branch != (DefaultBranch ?? MostActiveBranch) ? r.Branch : null;
+    internal string? EffectiveDefaultBranch => DefaultBranch ?? MostActiveBranch;
+
+    private bool MatchesFilter(WorkflowInfo w, string f)
     {
-        "Failed" => LatestStateOrNull(w) == RunState.Failure,
-        "Running" => RunsFor(w).Any(r => r.State.IsActive()),
-        "Succeeded" => LatestStateOrNull(w) == RunState.Success,
-        "Scheduled" => RunsFor(w).FirstOrDefault()?.Event == "schedule",
-        _ => true,
+        if (f == "All") return true;
+        var h = HealthOf(w);
+        return f switch
+        {
+            "Attention" => h.Kind is HealthKind.FailingNow or HealthKind.Recovered,
+            "Failed" => h.Kind == HealthKind.FailingNow,
+            "Running" => RunsFor(w).Any(r => r.State.IsActive()),
+            "Succeeded" => h.Kind is HealthKind.Healthy or HealthKind.Recovered,
+            "Scheduled" => RunsFor(w).FirstOrDefault()?.Event == "schedule",
+            _ => true,
+        };
+    }
+
+    private int CountFor(string f) => f == "Attention" ? _workflows!.Count(w => HealthOf(w).NeedsAttention) : _workflows!.Count(w => MatchesFilter(w, f));
+
+    private static string FilterLabel(string f) => f switch { "Attention" => "Needs attention", "Running" => "Active", "Scheduled" => "Scheduled runs", _ => f };
+    private static string FilterHint(string f) => f switch
+    {
+        "All" => "Every workflow, in configured order",
+        "Attention" => "Workflows whose newest finished run failed (recurring first), then stale failures and recovered workflows",
+        "Failed" => "Newest finished run (success or failure) on the default branch failed",
+        "Running" => "A run is queued or in progress",
+        "Succeeded" => "Newest finished run on the default branch succeeded",
+        _ => "Latest run was started by a schedule trigger (a trigger, not a result)",
     };
 
-    private int CountFor(string f) => _workflows!.Count(w => MatchesFilter(w, f));
+    private void SetFilter(string f) { _filter = f; }
 
     private bool MatchesSearch(WorkflowInfo w)
     {
@@ -535,6 +597,7 @@
 
     // ----------------------------------------------------------------------------------- node helpers (used by GroupNode / WorkflowNode)
 
+    internal bool IsDemo => Provider.IsDemo;
     internal RepoRef RepoRef => Repo;
     internal UiPreferences Preferences => Prefs;
     internal TimeProvider Clock => Time;
@@ -546,10 +609,17 @@
     internal bool TryGetJobs(long runId, out IReadOnlyList<JobInfo> jobs) => _jobs.TryGetValue(runId, out jobs!);
     internal bool HasHistory(long workflowId) => _history.ContainsKey(workflowId);
 
-    internal bool GroupOpen(WorkflowGroup g) => Prefs.IsExpanded(GroupKey(g)) || Searching;
+    internal bool GroupOpen(WorkflowGroup g) => Prefs.IsExpanded(GroupKey(g)) || Searching || _filter == "Attention";
     internal int VisibleCount(WorkflowGroup g) => g.AllWorkflows.Count(a => IsVisible(a.Workflow));
-    internal int GroupFailing(WorkflowGroup g) => g.AllWorkflows.Count(a => LatestStateOrNull(a.Workflow) == RunState.Failure);
-    internal double? GroupRate(WorkflowGroup g) => RunSummary.From(g.AllWorkflows.SelectMany(a => RunsFor(a.Workflow))).SuccessRate;
+    internal int GroupFailing(WorkflowGroup g) => g.AllWorkflows.Count(a => HealthOf(a.Workflow).NeedsAttention);
+    internal int GroupRecovered(WorkflowGroup g) => g.AllWorkflows.Count(a => HealthOf(a.Workflow).Kind == HealthKind.Recovered);
+
+    /// <summary>Configured order everywhere, except the attention view which ranks by <see cref="WorkflowHealth.Priority"/> inside each group.</summary>
+    internal IEnumerable<AssignedWorkflow> VisibleWorkflows(WorkflowGroup g)
+    {
+        var list = g.Workflows.Where(a => IsVisible(a.Workflow));
+        return _filter == "Attention" ? list.OrderBy(a => HealthOf(a.Workflow).Priority).ThenBy(a => a.Workflow.Name, StringComparer.OrdinalIgnoreCase) : list;
+    }
     internal bool WfOpen(WorkflowInfo w) => Prefs.IsExpanded(WorkflowKey(w));
     internal void ToggleGroup(WorkflowGroup g) => Prefs.Toggle(GroupKey(g));
     internal bool IsGroupVisible(WorkflowGroup g) => HasVisible(g);

@@ -4,34 +4,57 @@
     var open = Ws.WfOpen(w);
     var hasAnalysis = Ws.TryGetAnalysis(w.Path, out var analysis);
     var failures = runs.Count(r => r.State == RunState.Failure);
+    var latest = runs.FirstOrDefault();
     var latestDone = runs.FirstOrDefault(r => r.State.IsCompleted());
+    var health = Ws.HealthOf(w);
+    var now = Ws.Clock.GetUtcNow();
+    var otherBranch = Ws.NonDefaultBranch(latest);
     IReadOnlyList<JobInfo>? jobs = null;
     var hasJobs = latestDone is not null && Ws.TryGetJobs(latestDone.Id, out jobs);
     var tableFilter = new RunFilter(State: Ws.StatusFilter == "Failed" ? RunState.Failure : Ws.StatusFilter == "Succeeded" ? RunState.Success : null);
-    var summary = RunSummary.From(runs);
+    var url = SafeUrl(w.HtmlUrl);
 }
-<div class="ciw-wf @(open ? "open" : "")" data-workflow="@w.Path">
-    <div class="ciw-wf-head" tabindex="0" role="button" aria-expanded="@(open ? "true" : "false")" @onclick="() => Ws.ToggleWorkflow(w)" @onkeydown="OnKey">
-        <Icon Name="@(open ? "chevron-down" : "chevron-right")" Size="16" Class="ciw-chev" />
-        <span class="ciw-wficon"><Icon Name="workflow" Size="18" /></span>
-        <span class="ciw-wf-name">@w.Name</span>
-        <span class="ciw-mono ciw-muted ciw-path">@w.Path</span>
-        @if (!w.IsActive) { <span class="ciw-chip">disabled</span> }
-        <span class="ciw-spacer"></span>
-        @if (hasAnalysis && analysis!.Recurring.Count > 0) { <span class="ciw-chip bad" title="Recurring failure series">⚠ @analysis.Recurring.Count recurring</span> }
-        <StatusIcon State="Ws.LatestState(w)" />
-        <SuccessBar Rate="summary.SuccessRate" Scope="@Ws.ScopeText(summary)" />
-        <span class="ciw-muted ciw-runs">@runs.Count @(runs.Count == 1 ? "run" : "runs")</span>
-        <span class="ciw-muted ciw-ago">@Fmt.Ago(runs.FirstOrDefault()?.SortTime, Ws.Clock.GetUtcNow())</span>
+<div class="ciw-wf @(open ? "open" : "")" data-workflow="@w.Path" data-health="@health.Kind.ToString().ToLowerInvariant()">
+    <div class="ciw-wf-head" @onclick="() => Ws.ToggleWorkflow(w)">
+        <div class="ciw-wf-main">
+            <button type="button" class="ciw-toggle ciw-wf-toggle" aria-expanded="@(open ? "true" : "false")" title="@w.Name · @w.Path">
+                <Icon Name="@(open ? "chevron-down" : "chevron-right")" Size="16" Class="ciw-chev" />
+                <span class="ciw-wf-name">@w.Name</span>
+            </button>
+            <span class="ciw-flags">
+                @if (!w.IsActive) { <span class="ciw-flag">disabled</span> }
+                @if (health.Kind == HealthKind.FailingNow && health.Recurring && !health.Stale) { <span class="ciw-flag bad" title="The failure-series analysis found the same failure repeating">Recurring</span> }
+                @if (health.Kind == HealthKind.FailingNow && health.Stale) { <span class="ciw-flag" title="The newest finished run failed @Fmt.Ago(health.Verdict!.SortTime, now); older than @((int)WorkflowHealthAnalyzer.StaleAfter.TotalDays) days, so not treated as a current incident">Stale · @Fmt.Ago(health.Verdict.SortTime, now)</span> }
+                @if (health.Kind == HealthKind.FailingNow && !health.Stale && latest is { State: not RunState.Failure }) { <span class="ciw-flag bad" title="The newest run is @Fmt.StateLabel(latest.State), but the newest finished run failed">Failing now</span> }
+                @if (health.Kind == HealthKind.Recovered) { <span class="ciw-flag good" title="Failed earlier; the newest finished run succeeded">Recovered</span> }
+                @if (health.Kind == HealthKind.Unknown && latest is not null) { <span class="ciw-flag" title="No finished success/failure in the loaded history, so health cannot be judged">Not enough history</span> }
+                @if (otherBranch is not null) { <span class="ciw-flag branch" title="Latest run was not on the default branch">@otherBranch</span> }
+            </span>
+        </div>
+        <span class="ciw-wf-status"><StatusBadge State="latest?.State" Tooltip="@(latest is null ? "No runs in the loaded history" : $"Latest run #{latest.RunNumber}: {Fmt.StateLabel(latest.State)}")" /></span>
+        <span class="ciw-runs">@runs.Count @(runs.Count == 1 ? "run" : "runs")</span>
+        <span class="ciw-ago">@Fmt.Ago(latest?.SortTime, now)</span>
+        <span class="ciw-actions">
+            <button type="button" class="ciw-iconbtn" disabled="@(latest is null)" title="Inspect the latest run" aria-label="Inspect the latest run of @w.Name" data-action="inspect-latest"
+                    @onclick="() => Ws.SelectRun(latest!)" @onclick:stopPropagation="true"><Icon Name="panel" Size="15" /></button>
+            @if (url is not null)
+            {
+                <a class="ciw-iconbtn" href="@url" target="_blank" rel="noopener noreferrer" title="Open workflow on GitHub" aria-label="Open @w.Name on GitHub" @onclick:stopPropagation="true"><Icon Name="external" Size="15" /></a>
+            }
+        </span>
     </div>
     @if (open)
     {
         <div class="ciw-wf-body">
+            <p class="ciw-wf-path"><span class="ciw-mono">@w.Path</span>
+                @if (health.Kind == HealthKind.FailingNow && health.Verdict is { } bad) { <span class="ciw-muted"> · Newest finished run on @bad.Branch failed @Fmt.Ago(bad.SortTime, now) (#@bad.RunNumber)</span> }
+                @if (health.Kind == HealthKind.Recovered && health.Verdict is { } good) { <span class="ciw-muted"> · Recovered: run #@good.RunNumber succeeded @Fmt.Ago(good.SortTime, now) after an earlier failure</span> }
+            </p>
             @if (hasAnalysis && analysis!.Series.Count > 0)
             {
                 <section class="ciw-seriespanel" aria-label="Failure analysis">
                     <header>
-                        <span class="ciw-shield"><Icon Name="shield-alert" Size="18" /></span>
+                        <span class="ciw-shield"><Icon Name="shield-alert" Size="16" /></span>
                         <strong>Recurring failure series</strong>
                         <span class="ciw-count">@analysis.Recurring.Count</span>
                         <span class="ciw-muted ciw-sub">Consecutive failures with the same error pattern</span>
@@ -59,7 +82,8 @@
                         </button>
                     }
                 </div>
-            }            <RunTable Runs="RunFiltering.Apply(Ws.VisibleRuns(w), tableFilter)" SelectedRunId="Ws.SelectedRun" OnRunSelected="Ws.SelectRun" HealthFor="@(hasAnalysis ? Health : null)" />
+            }
+            <RunTable Runs="RunFiltering.Apply(Ws.VisibleRuns(w), tableFilter)" SelectedRunId="Ws.SelectedRun" OnRunSelected="Ws.SelectRun" HealthFor="@(hasAnalysis ? RunHealth : null)" DefaultBranch="@Ws.EffectiveDefaultBranch" />
             @if (!Ws.HasHistory(w.Id) && runs.Count >= 5)
             {
                 <div><button type="button" class="ciw-btn sm" @onclick="() => Ws.LoadHistoryAsync(w)">Load more history</button></div>
@@ -72,10 +96,11 @@
     [CascadingParameter] internal RepositoryWorkspace Ws { get; set; } = default!;
     [Parameter, EditorRequired] public AssignedWorkflow Assigned { get; set; } = default!;
 
-    private void OnKey(KeyboardEventArgs e) { if (e.Key is "Enter" or " ") _ = Ws.ToggleWorkflow(Assigned.Workflow); }
+    private string? SafeUrl(string? u) =>
+        !Ws.IsDemo && Uri.TryCreate(u, UriKind.Absolute, out var x) && x.Scheme == Uri.UriSchemeHttps && !x.Host.EndsWith(".invalid") ? x.ToString() : null;
 
     /// <summary>Health text only from jobs that were actually inspected; never inferred.</summary>
-    private (string Text, string Cls)? Health(WorkflowRunInfo r)
+    private (string Text, string Cls)? RunHealth(WorkflowRunInfo r)
     {
         if (!Ws.TryGetAnalysis(Assigned.Workflow.Path, out var a)) return null;
         var failed = a.Series.SelectMany(s => s.Occurrences).Where(o => o.Run.Id == r.Id).Select(o => o.JobName).Distinct().ToList();

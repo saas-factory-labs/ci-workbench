@@ -8,7 +8,7 @@
 @inject TimeProvider Time
 @inject IJSRuntime JS
 
-<div class="ciw-root shell" data-ciw-density="@(Prefs.Density == Density.Compact ? "compact" : "comfortable")" data-inspector="@(Prefs.InspectorOpen ? "open" : "closed")">
+<div class="ciw-root shell" data-ciw-density="@(Prefs.Density == Density.Compact ? "compact" : "comfortable")" data-inspector="@(Prefs.InspectorOpen ? "open" : "closed")" data-sidebar="@(_sidebarCollapsed ? "collapsed" : "auto")">
     @if (Session.Mode == DataMode.Demo)
     {
         <div class="demo-banner" role="status" data-testid="demo-banner">
@@ -23,6 +23,7 @@
     }
 
     <header class="topbar">
+        <button type="button" class="hamburger" @onclick="ToggleSidebar" aria-label="@(_sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar")" aria-expanded="@(_sidebarCollapsed ? "false" : "true")" title="@(_sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar")" data-testid="sidebar-toggle"><Icon Name="menu" Size="20" /></button>
         <a class="brand" href="" aria-label="CIWorkbench home">
             <svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true"><path d="M16 2.5l11.5 6.4v14.2L16 29.5 4.5 23.1V8.9z" fill="#2f6df6"/><path d="M10.5 16.4l4 4 7.2-7.6" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span>CIWorkbench</span>
@@ -57,7 +58,7 @@
         </div>
     </header>
 
-    <SideNav />
+    <SideNav Collapsed="_sidebarCollapsed" />
 
     <main class="content" id="main">
         @Body
@@ -74,7 +75,7 @@
         </div>
         @if (Prefs.InspectorOpen)
         {
-            <div id="inspector-body" class="insp-body"><RunInspector Selection="Inspector.Selection" /></div>
+            <div id="inspector-body" class="insp-body"><RunInspector Selection="Inspector.Selection" OnClose="CloseInspector" OnInspectSimilar="InspectSimilar" /></div>
         }
     </aside>
     @if (Prefs.InspectorOpen) { <div class="scrim" @onclick="() => Prefs.InspectorOpen = false"></div> }
@@ -84,6 +85,9 @@
     private string Org { get; set; } = "";
     private Timer? _tick;
     private bool _prefsLoaded;
+    private bool _sidebarCollapsed;
+    private bool _wasInspectorOpen;
+    private DotNetObjectReference<MainLayout>? _self;
 
     private IEnumerable<string> Owners => Session.Repositories.Select(r => r.Ref.Owner).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase);
     private IEnumerable<RepositoryInfo> ReposInOrg => Session.Repositories.Where(r => string.IsNullOrEmpty(Org) || r.Ref.Owner.Equals(Org, StringComparison.OrdinalIgnoreCase)).OrderBy(r => r.Ref.FullName, StringComparer.OrdinalIgnoreCase).Take(500);
@@ -109,7 +113,11 @@
         {
             var density = await JS.InvokeAsync<string?>("ciw.getPref", "density");
             var expanded = await JS.InvokeAsync<string?>("ciw.getPref", ExpandedKey);
+            var sidebar = await JS.InvokeAsync<string?>("ciw.getPref", "sidebar");
             if (density is "compact") Prefs.Density = Density.Compact;
+            if (sidebar is "collapsed") _sidebarCollapsed = true;
+            _self = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("ciw.registerShell", _self);
             if (!string.IsNullOrEmpty(expanded))
             {
                 try { Prefs.RestoreExpanded(System.Text.Json.JsonSerializer.Deserialize<string[]>(expanded) ?? []); } catch (System.Text.Json.JsonException) { /* ignore corrupt preference */ }
@@ -138,6 +146,27 @@
     // A run belongs to the page it was selected on: navigating away closes the inspector so it never lingers over another view.
     private void OnLocation(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => Inspector.Clear();
 
+    private async Task ToggleSidebar()
+    {
+        _sidebarCollapsed = !_sidebarCollapsed;
+        try { await JS.InvokeVoidAsync("ciw.setPref", "sidebar", _sidebarCollapsed ? "collapsed" : "expanded"); }
+        catch (JSException) { }
+        catch (InvalidOperationException) { }
+    }
+
+    /// <summary>Collapsing keeps the selection, so reopening the pane shows the same run.</summary>
+    private void CloseInspector() => Prefs.InspectorOpen = false;
+
+    private void InspectSimilar(RunSelection s) => Nav.NavigateTo($"repo/{s.Repo.Owner}/{s.Repo.Name}/failures");
+
+    /// <summary>Called by the Esc shortcut in ciworkbench.js (never while typing in a field).</summary>
+    [JSInvokable]
+    public Task OnEscape()
+    {
+        if (Prefs.InspectorOpen) Prefs.InspectorOpen = false;
+        return Task.CompletedTask;
+    }
+
     private void OnPrefsChanged()
     {
         InvokeAsync(async () =>
@@ -146,6 +175,11 @@
             if (!_prefsLoaded) return;
             try
             {
+                if (Prefs.InspectorOpen != _wasInspectorOpen)
+                {
+                    _wasInspectorOpen = Prefs.InspectorOpen;
+                    await JS.InvokeVoidAsync(_wasInspectorOpen ? "ciw.rememberFocus" : "ciw.restoreFocus");
+                }
                 await JS.InvokeVoidAsync("ciw.setPref", "density", Prefs.Density == Density.Compact ? "compact" : "comfortable");
                 await JS.InvokeVoidAsync("ciw.setPref", ExpandedKey, System.Text.Json.JsonSerializer.Serialize(Prefs.ExpandedKeys.Where(k => !k.StartsWith("seeded|")).Take(500)));
             }
@@ -168,7 +202,7 @@
     public ValueTask DisposeAsync()
     {
         Session.Changed -= OnChanged; Signals.Changed -= OnChanged; Prefs.Changed -= OnPrefsChanged; Inspector.Changed -= OnInspector; Nav.LocationChanged -= OnLocation;
-        _tick?.Dispose();
+        _tick?.Dispose(); _self?.Dispose();
         return ValueTask.CompletedTask;
     }
 }
