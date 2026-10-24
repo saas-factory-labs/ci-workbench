@@ -43,7 +43,7 @@
         </label>
         <div class="global-search">
             <Icon Name="search" Size="18" />
-            <input id="ciw-global-search" type="search" placeholder="Search workflows, runs, jobs, or keywords…" aria-label="Search the active repository"
+            <input id="ciw-global-search" type="search" placeholder="@SearchPlaceholder" aria-label="Search the active repository" title="Searches the active repository only (same filter as the box in the workspace)" disabled="@(Session.Selected is null)"
                    value="@Signals.SearchText" @oninput="e => Signals.SetSearch(e.Value?.ToString())" />
             <kbd>Ctrl K</kbd>
         </div>
@@ -88,6 +88,7 @@
     private IEnumerable<string> Owners => Session.Repositories.Select(r => r.Ref.Owner).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase);
     private IEnumerable<RepositoryInfo> ReposInOrg => Session.Repositories.Where(r => string.IsNullOrEmpty(Org) || r.Ref.Owner.Equals(Org, StringComparison.OrdinalIgnoreCase)).OrderBy(r => r.Ref.FullName, StringComparer.OrdinalIgnoreCase).Take(500);
 
+    private string SearchPlaceholder => Session.Selected is { } s ? $"Search in {s.Name}: workflows, runs, branches…" : "Open a repository to search its workflows and runs";
     private string ConnClass => Session.Connection is null ? "unknown" : Session.Connection.IsHealthy ? "ok" : "bad";
     private string ConnLabel => Session.Tracker.IsThrottled(Time.GetUtcNow()) ? "Rate limited" : Session.Connection is null ? "GitHub: not verified" : Session.Connection.IsHealthy ? $"GitHub: {Session.Connection.Account}" : "GitHub: problem";
 

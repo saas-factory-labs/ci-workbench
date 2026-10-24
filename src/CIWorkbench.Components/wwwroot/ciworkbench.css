@@ -11,7 +11,7 @@
   --ciw-border: #1c2b47;
   --ciw-border-strong: #2a3d62;
   --ciw-fg: #e8eef8;
-  --ciw-muted: #8e9db6;
+  --ciw-muted: #a9b7cd;
   --ciw-accent: #3b82f6;
   --ciw-accent-soft: rgba(59, 130, 246, .16);
   --ciw-accent-strong: rgba(59, 130, 246, .28);
@@ -25,7 +25,7 @@
 
   /* comfortable density */
   --ciw-fs: 15px;
-  --ciw-fs-sm: 13px;
+  --ciw-fs-sm: 14px;
   --ciw-icon: 20px;
   --ciw-head-y: 15px;
   --ciw-row-y: 11px;
@@ -116,18 +116,18 @@
 .ciw-repo-desc { margin-top: 4px; }
 .ciw-head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 
-.ciw-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); background: var(--ciw-surface); border: 1px solid var(--ciw-border); border-radius: var(--ciw-radius); margin-bottom: 16px; }
+.ciw-summary { display: grid; grid-template-columns: minmax(0, 1.55fr) repeat(4, minmax(0, 1fr)); background: var(--ciw-surface); border: 1px solid var(--ciw-border); border-radius: var(--ciw-radius); margin-bottom: 16px; }
 .ciw-stat { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-right: 1px solid var(--ciw-border); min-width: 0; }
 .ciw-stat:last-child { border-right: 0; }
 .ciw-stat > .ciw-status { width: 38px; height: 38px; }
 .ciw-stat > .ciw-icon { width: 24px; height: 24px; }
 .ciw-stat div { min-width: 0; } .ciw-stat strong { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ciw-stat span { color: var(--ciw-muted); font-size: var(--ciw-fs-sm); }
+.ciw-stat span { color: var(--ciw-muted); font-size: var(--ciw-fs-sm); white-space: nowrap; }
 
-.ciw-banner { display: flex; align-items: center; gap: 16px; padding: 14px 18px; border-radius: var(--ciw-radius); background: rgba(120, 28, 44, .42); border: 1px solid rgba(239, 68, 85, .55); margin-bottom: 16px; }
+.ciw-banner { display: flex; align-items: center; gap: 12px; padding: 7px 12px 7px 14px; border-radius: var(--ciw-radius); background: rgba(120, 28, 44, .3); border: 1px solid rgba(239, 68, 85, .4); margin-bottom: 14px; }
 .ciw-banner-icon { color: var(--ciw-failure); display: inline-flex; }
-.ciw-banner-text { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.ciw-banner-text strong { font-size: 1.07em; } .ciw-banner-text span { color: #f6c3c8; font-size: var(--ciw-fs-sm); }
+.ciw-banner-text { flex: 1; display: flex; flex-flow: row wrap; align-items: baseline; gap: 2px 14px; min-width: 0; }
+.ciw-banner-text strong { font-size: 1em; } .ciw-banner-text span { color: #f6c3c8; font-size: var(--ciw-fs-sm); }
 
 /* ---- toolbar ---- */
 .ciw-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
@@ -301,3 +301,17 @@
   .ciw-series-body { padding-left: 18px; }
   .ciw-toolbar-actions { margin-left: 0; }
 }
+
+/* ---- compact job chips + scope line ---- */
+.ciw-scope { margin: -4px 0 12px; font-size: var(--ciw-fs-sm); color: var(--ciw-muted); }
+.ciw-jobchips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 8px; }
+.ciw-jobchips-label { display: inline-flex; align-items: center; gap: 8px; margin-right: 6px; font-weight: 600; flex-wrap: wrap; }
+.ciw-jobchips-label .ciw-muted { font-weight: 400; font-size: var(--ciw-fs-sm); }
+.ciw-jobtally { font-weight: 500; font-size: var(--ciw-fs-sm); } .ciw-jobtally .ok { color: var(--ciw-success); } .ciw-jobtally .bad { color: #ff8b95; }
+.ciw-jobchip { display: inline-flex; align-items: center; gap: 8px; padding: 3px 11px 3px 8px; border-radius: 999px; background: var(--ciw-surface-2); border: 1px solid var(--ciw-border-strong); cursor: pointer; font-size: var(--ciw-fs-sm); white-space: nowrap; }
+.ciw-jobchip:hover { border-color: var(--ciw-accent); }
+.ciw-jobchip .ciw-status { width: 16px; height: 16px; }
+.ciw-jobchip.ok { border-color: rgba(34,197,94,.4); } .ciw-jobchip.fail { border-color: rgba(239,68,85,.6); background: var(--ciw-failure-soft); }
+.ciw-root[data-ciw-density="compact"] .ciw-jobchip { padding: 1px 9px 1px 6px; gap: 6px; }
+.ciw-root[data-ciw-density="compact"] .ciw-jobchips { gap: 4px 6px; }
+.ciw-root[data-ciw-density="compact"] .ciw-scope { margin-bottom: 6px; }

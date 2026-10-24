@@ -36,7 +36,7 @@
         <div class="ciw-summary" aria-label="Repository summary">
             <div class="ciw-stat">
                 <StatusIcon State="@(_summary.SuccessRate is { } sr && sr < 0.7 ? RunState.Failure : RunState.Success)"/>
-                <div><strong>@Fmt.Percent(_summary.SuccessRate) success rate</strong><span>Last @_summary.Total runs</span></div>
+                <div><strong>@Fmt.Percent(_summary.SuccessRate) success rate</strong><span>Last @_summary.Total runs · @RangeText</span></div>
             </div>
             <div class="ciw-stat"><Icon Name="clock" Size="22" Class="ciw-accent" /><div><strong>@Fmt.Duration(_avgDuration)</strong><span>Average duration</span></div></div>
             <div class="ciw-stat"><Icon Name="branch" Size="22" Class="ciw-accent" /><div><strong>@(DefaultBranch ?? MostActiveBranch)</strong><span>@(DefaultBranch is null ? "Most active branch" : "Default branch")</span></div></div>
@@ -52,14 +52,14 @@
         @if (TotalSeries > 0 && !_bannerDismissed)
         {
             <div class="ciw-banner" role="alert" data-testid="failure-banner">
-                <span class="ciw-banner-icon" aria-hidden="true"><Icon Name="shield-alert" Size="30" /></span>
+                <span class="ciw-banner-icon" aria-hidden="true"><Icon Name="shield-alert" Size="22" /></span>
                 <div class="ciw-banner-text">
                     <strong>Recurring failures detected@(BannerWorkflows)</strong>
                     <span>@TotalSeries failure @(TotalSeries == 1 ? "series" : "series") with @DistinctFailedRuns failed runs in the loaded history. Investigate to prevent delayed deployments.</span>
                 </div>
                 @if (View != WorkspaceView.Failures && OnViewFailures.HasDelegate)
                 {
-                    <button type="button" class="ciw-btn danger" @onclick="() => OnViewFailures.InvokeAsync()" data-action="view-failures">View failure series</button>
+                    <button type="button" class="ciw-btn sm danger" @onclick="() => OnViewFailures.InvokeAsync()" data-action="view-failures">View failure series</button>
                 }
                 <button type="button" class="ciw-iconbtn" aria-label="Dismiss" @onclick="() => _bannerDismissed = true"><Icon Name="x" Size="18" /></button>
             </div>
@@ -68,7 +68,7 @@
         <div class="ciw-toolbar">
             <div class="ciw-searchbox">
                 <Icon Name="search" Size="17" />
-                <input type="search" placeholder="Search workflows, runs, or filters…" aria-label="Search workflows and runs"
+                <input type="search" placeholder="Filter workflows and runs in this repository…" aria-label="Filter workflows and runs in this repository" title="Same filter as the top search box, scoped to this repository"
                        value="@Search" @oninput="e => Signals.SetSearch(e.Value?.ToString())" />
             </div>
             <div class="ciw-chips" role="group" aria-label="Filter workflows by latest status">
@@ -104,6 +104,8 @@
                 }
             </div>
         </div>
+
+        <p class="ciw-scope" data-testid="success-scope">Success % = succeeded ÷ finished runs (cancelled and skipped excluded) in the loaded window: @_runs.Count runs, @RangeText.</p>
 
         @if (View == WorkspaceView.Groups)
         {
@@ -197,6 +199,9 @@
     private string? Search => Signals.SearchText;
     private int TotalSeries => _series.Values.Sum(a => a.Recurring.Count);
     private int DistinctFailedRuns => _series.Values.SelectMany(a => a.Recurring).SelectMany(s => s.Occurrences).Select(o => o.Run.Id).Distinct().Count();
+    private string RangeText => _runs.Count == 0 ? "no runs" : $"{_runs.Min(r => r.SortTime).ToString("MMM d", System.Globalization.CultureInfo.InvariantCulture)} – {_runs.Max(r => r.SortTime).ToString("MMM d", System.Globalization.CultureInfo.InvariantCulture)}";
+    internal string ScopeText(RunSummary s) => $"{s.Succeeded} of {s.Succeeded + s.Failed} finished runs succeeded · loaded window {RangeText}";
+    internal string GroupScope(WorkflowGroup g) => ScopeText(RunSummary.From(g.AllWorkflows.SelectMany(a => RunsFor(a.Workflow))));
     private string MostActiveBranch => _runs.GroupBy(r => r.Branch).OrderByDescending(g => g.Count()).Select(g => g.Key).FirstOrDefault() ?? "—";
     private string BannerWorkflows
     {
@@ -490,7 +495,7 @@
             }
             var latest = RunsFor(w).FirstOrDefault(r => r.State.IsCompleted());
             if (latest is not null && !_jobs.ContainsKey(latest.Id)) { _jobs[latest.Id] = await Provider.ListJobsAsync(Repo, latest.Id, ct); await InvokeAsync(StateHasChanged); }
-            if (!_series.ContainsKey(w.Path) && RunsFor(w).Count(r => r.State == RunState.Failure) >= 2)
+            if (!_series.ContainsKey(w.Path) && RunsFor(w).Any(r => r.State == RunState.Failure))
             {
                 _analyzing = true; await InvokeAsync(StateHasChanged);
                 await AnalyzeWorkflowAsync(w, ct);
@@ -514,7 +519,7 @@
             var all = await Provider.ListWorkflowRunsAsync(Repo, w.Id, 100, _cts.Token);
             _history[w.Id] = all; _historyTruncated[w.Id] = all.Count >= 100;
             _series.Remove(w.Path); _analysisKey.Remove(w.Path);
-            if (RunsFor(w).Count(r => r.State == RunState.Failure) >= 2) await AnalyzeWorkflowAsync(w, _cts.Token);
+            if (RunsFor(w).Any(r => r.State == RunState.Failure)) await AnalyzeWorkflowAsync(w, _cts.Token);
         }
         catch (OperationCanceledException) { }
         catch (CiProviderException ex) { _warnings.Add($"{w.Name}: {ex.Message}"); }

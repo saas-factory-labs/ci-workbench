@@ -7,7 +7,7 @@
         @if (!string.IsNullOrEmpty(Group.Description)) { <span class="ciw-muted ciw-desc">@Group.Description</span> }
         <span class="ciw-spacer"></span>
         @if (Ws.GroupFailing(Group) is > 0 and var failing) { <span class="ciw-chip bad" title="Workflows whose latest run failed">@failing failing</span> }
-        <SuccessBar Rate="Ws.GroupRate(Group)" />
+        <SuccessBar Rate="Ws.GroupRate(Group)" Scope="@Ws.GroupScope(Group)" />
     </div>
     @if (Open)
     {
