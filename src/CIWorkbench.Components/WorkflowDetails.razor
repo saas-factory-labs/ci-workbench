@@ -62,7 +62,7 @@
                     <span class="ciw-mono">@wf.Path</span>
                     <span><strong>@_runs.Count</strong>@(_truncated ? "+" : "") @(_runs.Count == 1 ? "run" : "runs") loaded</span>
                     <span>Latest run <strong>@Fmt.Ago(latest?.SortTime, now)</strong></span>
-                    <span>Success rate <strong>@Fmt.Percent(success.Rate)</strong></span>
+                    <span>Success rate <strong>@Fmt.Percent(success.Rate)</strong> <span class="ciw-muted">(loaded runs)</span></span>
                     <span>Avg duration <strong>@Fmt.Duration(dur.Average)</strong></span>
                     <span>Last success <strong>@(lastOk is null ? "none loaded" : Fmt.Ago(lastOk.SortTime, now))</strong></span>
                 </p>
@@ -71,6 +71,7 @@
                 </div>
             </header>
 
+            <WorkflowOutcomes Runs="_runs" Truncated="_truncated" Now="now" RunHref="@(r => Routes.Run(Repo, r.Id))" />
             @if (_warning is not null) { <div class="ciw-notice warn" role="status">⚠ @_warning</div> }
             <div class="ciw-tabs scroll" role="tablist" aria-label="Workflow sections">
                 @foreach (var t in Tabs)

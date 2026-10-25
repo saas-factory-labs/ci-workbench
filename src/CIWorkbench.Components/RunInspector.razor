@@ -59,7 +59,7 @@
                             var step = FailingStep(p);
                             var hasLog = _logs.TryGetValue(p.Id, out var log);
                             <section class="ciw-diag" data-testid="failure-summary">
-                                <p class="ciw-eyebrow bad">@(failed.Count == 1 ? "Failed job" : $"Failed job · {failed.Count} failed")</p>
+                                <p class="ciw-eyebrow bad"><Icon Name="alert" Size="14" /> @(failed.Count == 1 ? "Failed job" : $"Failed job · {failed.Count} failed")</p>
                                 <h3 class="ciw-diag-title">@p.Name</h3>
                                 <p class="ciw-diag-where">@if (step is null) { <span>No failing step reported</span> } else { <span>Step: <strong>@step</strong></span> }</p>
                                 @if (_logLoading.Contains(p.Id)) { <div class="ciw-loading" role="status"><div class="ciw-skel w80"></div></div> }

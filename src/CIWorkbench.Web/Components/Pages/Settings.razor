@@ -2,6 +2,7 @@
 @implements IDisposable
 @inject AppSession Session
 @inject UiPreferences Prefs
+@inject ThemeState Theme
 @inject IJSRuntime JS
 @inject TimeProvider Time
 
@@ -47,9 +48,12 @@
 
     <section class="card">
         <h2>Display</h2>
+        <p>Theme</p>
+        <ThemeToggle />
+        <p class="ciw-muted ciw-footnote">System follows your operating system's light or dark setting.</p>
         <p>Row density</p>
         <DensityToggle />
-        <p class="ciw-muted">Density and expanded groups are stored in this browser only. No credentials are stored there.</p>
+        <p class="ciw-muted">Theme, density and expanded groups are stored in this browser only. No credentials are stored there.</p>
         <button class="ciw-btn sm" @onclick="ClearPrefs">Reset saved preferences</button>
     </section>
 </div>
@@ -67,5 +71,6 @@
     {
         try { foreach (var k in new[] { "density", "inspector", "expanded", "expanded.v2" }) await JS.InvokeVoidAsync("ciw.setPref", k, ""); } catch (JSException) { }
         Prefs.Density = Density.Comfortable;
+        Theme.Preference = ThemePreference.System;
     }
 }

@@ -56,3 +56,18 @@ Live mode holds a GitHub token on a server that has no login, so it must never b
 Implications: anyone on that network can open the demo UI (synthetic data only, no token, no GitHub access). Do not use this profile with a token configured on a shared or public network. Use plain HTTP only for demo data; the async clipboard API needs a secure context, so on `http://` addresses the copy buttons use the older `execCommand` fallback (which may be blocked by some browsers).
 
 Things worth checking on the phone: the toolbar collapsing while scrolling, rotation, the on-screen keyboard in the search box, the navigation drawer and inspector sheet near the home indicator, and back-swipe from Run details to Workflow details to the workspace.
+
+### Theme checks on the phone (Light, Dark, System)
+
+Run these once with the iPhone set to Light appearance and once with Dark (Settings, Display and Brightness), because System follows it.
+
+1. Open the site fresh (close the tab first). It must paint in the iPhone's current appearance with no flash of the other theme. Fresh means no saved choice, so the Settings theme control shows **System**.
+2. Tap the three-dot menu in the top bar. The **Light / Dark / System** control is there (the top bar itself has no theme buttons). Each segment is at least 44 pt tall.
+3. Choose Dark, then Light: the whole page changes at once and the repository, filters, expanded workflows and an open inspector stay as they were.
+4. Choose System, then switch the phone between Light and Dark from Control Centre with Safari open: the page follows within a moment, without a reload.
+5. Reload and navigate to another page: the explicit choice persists. Quit and reopen Safari: it still persists (it is stored in this browser only).
+6. In both themes check: card and row boundaries are visible on the small screen, the failed-job callout and log excerpt are readable (the long log line scrolls inside its own box, not the page), status badges are legible, the drawer and the inspector sheet clear the home indicator, and rotating to landscape keeps everything reachable.
+7. Long-press a recent-run dot in a quick preview: it should open that run (the dots are links) and nothing is clipped at 320 pt width.
+
+This is the only real-Safari verification. The automated WebKit runs use Playwright's WebKit build, which shares the engine but not iOS Safari's chrome, safe areas or dynamic toolbar.
+

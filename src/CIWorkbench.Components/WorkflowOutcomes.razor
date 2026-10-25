@@ -1,0 +1,69 @@
+@* Compact health picture of one workflow, drawn only from the runs that were actually loaded (never a lifetime figure).
+   A proportional bar and a timeline say how bad it is at a glance; the legend, the facts line and the aria-labels say the same in words. *@
+@{
+    var all = Runs;
+    var n = all.Count;
+    var counts = Buckets.Select(b => (Bucket: b, Count: all.Count(r => b.Matches(r.State)))).ToList();
+    var timeline = all.Take(TimelineMax).Reverse().ToList();
+    var decisive = all.Where(r => r.State is RunState.Success or RunState.Failure).ToList();
+    var streakState = decisive.FirstOrDefault()?.State;
+    var streak = streakState is null ? 0 : decisive.TakeWhile(r => r.State == streakState).Count();
+    var streakLower = Truncated && streak == decisive.Count;
+    var lastOk = all.FirstOrDefault(r => r.State == RunState.Success);
+}
+@if (n > 0)
+{
+    <section class="ciw-outcomes" aria-labelledby="ciw-outcomes-h" data-testid="workflow-outcomes">
+        <header class="ciw-outcomes-head">
+            <h2 id="ciw-outcomes-h" class="ciw-h2">Recent outcomes</h2>
+            <span class="ciw-muted ciw-outcomes-window" data-testid="outcomes-window">newest @n@(Truncated ? "+" : "") loaded @(n == 1 ? "run" : "runs"), not lifetime</span>
+        </header>
+        <div class="ciw-outcomes-bar" role="img" aria-label="@Summary(counts, n)">
+            @foreach (var (b, c) in counts.Where(x => x.Count > 0)) { <span class="ciw-seg @b.Css" style="flex-grow:@c" title="@c @b.Label"></span> }
+        </div>
+        <ul class="ciw-outcomes-legend" aria-label="Outcome counts">
+            @foreach (var (b, c) in counts.Where(x => x.Count > 0 || x.Bucket.Always))
+            {
+                <li class="@(c == 0 ? "zero" : "")"><i class="ciw-swatch @b.Css" aria-hidden="true"></i><strong>@c</strong> @b.Label</li>
+            }
+        </ul>
+        <div class="ciw-timeline" role="img" aria-label="Timeline of the @timeline.Count newest loaded runs, oldest to newest. Newest run: @Fmt.StateLabel(all[0].State).">
+            @foreach (var r in timeline) { <i class="ciw-tick @Bucket(r.State).Css" data-tip="#@r.RunNumber · @Fmt.StateLabel(r.State) · @Fmt.Ago(r.SortTime, Now)"></i> }
+        </div>
+        <p class="ciw-outcomes-facts">
+            @if (streak >= 2) { <span data-testid="outcomes-streak"><strong class="@(streakState == RunState.Failure ? "bad" : "good")">@(streakLower ? "At least " : "")@streak @(streakState == RunState.Failure ? "failures" : "successes") in a row</strong> among finished runs</span> }
+            else if (streak == 1) { <span>Newest finished run <strong class="@(streakState == RunState.Failure ? "bad" : "good")">@(streakState == RunState.Failure ? "failed" : "succeeded")</strong></span> }
+            <span data-testid="outcomes-lastok">Last success:
+                @if (lastOk is null) { <strong>none in the loaded runs</strong> }
+                else { <a class="ciw-runlink" href="@RunHref(lastOk)">#@lastOk.RunNumber</a><span class="ciw-muted"> · @Fmt.Ago(lastOk.SortTime, Now)</span> }
+            </span>
+        </p>
+    </section>
+}
+
+@code {
+    private const int TimelineMax = 60;
+
+    [Parameter, EditorRequired] public IReadOnlyList<WorkflowRunInfo> Runs { get; set; } = [];
+    /// <summary>True when more runs exist than were loaded, so every figure is a lower bound of a window, not of history.</summary>
+    [Parameter] public bool Truncated { get; set; }
+    [Parameter] public DateTimeOffset Now { get; set; }
+    [Parameter, EditorRequired] public Func<WorkflowRunInfo, string> RunHref { get; set; } = _ => "#";
+
+    private sealed record Kind(string Css, string Label, Func<RunState, bool> Matches, bool Always = false);
+
+    private static readonly Kind[] Buckets =
+    [
+        new("ok", "succeeded", s => s == RunState.Success, true),
+        new("fail", "failed", s => s == RunState.Failure, true),
+        new("cancel", "cancelled", s => s == RunState.Cancelled),
+        new("skip", "skipped or neutral", s => s is RunState.Skipped or RunState.Neutral),
+        new("active", "running", s => s == RunState.InProgress),
+        new("wait", "queued", s => s == RunState.Queued),
+    ];
+
+    private static Kind Bucket(RunState s) => Buckets.First(b => b.Matches(s));
+
+    private static string Summary(IEnumerable<(Kind Bucket, int Count)> counts, int n) =>
+        $"Of the {n} loaded runs: " + string.Join(", ", counts.Where(c => c.Count > 0).Select(c => $"{c.Count} {c.Bucket.Label}")) + ".";
+}

@@ -2,6 +2,7 @@
 @implements IAsyncDisposable
 @inject AppSession Session
 @inject UiPreferences Prefs
+@inject ThemeState Theme
 @inject InspectorState Inspector
 @inject WorkspaceSignals Signals
 @inject NavigationManager Nav
@@ -26,7 +27,7 @@
     <header class="topbar">
         <button type="button" class="hamburger" @onclick="ToggleNavAsync" aria-label="@NavToggleLabel" aria-expanded="@(NavExpanded ? "true" : "false")" aria-controls="main-nav" title="@NavToggleLabel" data-testid="sidebar-toggle"><Icon Name="menu" Size="20" /></button>
         <a class="brand" href="" aria-label="CIWorkbench home">
-            <svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true"><path d="M16 2.5l11.5 6.4v14.2L16 29.5 4.5 23.1V8.9z" fill="#2f6df6"/><path d="M10.5 16.4l4 4 7.2-7.6" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true"><path class="brand-hex" d="M16 2.5l11.5 6.4v14.2L16 29.5 4.5 23.1V8.9z"/><path class="brand-check" d="M10.5 16.4l4 4 7.2-7.6" fill="none" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span>CIWorkbench</span>
         </a>
         <label class="sel sel-org"><Icon Name="layers" Size="22" />
@@ -59,6 +60,8 @@
             <button type="button" class="ciw-btn" @onclick="Signals.RequestRefresh" disabled="@(Session.Selected is null)" aria-label="Refresh active repository" title="Refresh (throttled)"><Icon Name="refresh" Size="16" /> Refresh</button>
             <span class="updated ciw-muted" aria-live="polite">@(Signals.IsLoading ? "Refreshing…" : Signals.LastUpdated is null ? "Not loaded" : $"Updated {Fmt.Ago(Signals.LastUpdated, Time.GetUtcNow())}")</span>
             <DensityToggle />
+            <span class="theme-desktop"><ThemeMenu /></span>
+            <span class="theme-phone"><ThemeToggle /></span>
             @if (Session.Mode == DataMode.Demo) { <span class="conn demo" data-testid="connection-status" title="Synthetic data. No credentials are used."><i></i>Demo mode</span> }
             else { <a class="conn @ConnClass" href="settings" data-testid="connection-status" title="Open Settings to verify permissions."><i></i>@ConnLabel</a> }
             <a class="iconlink" href="settings" aria-label="Settings" title="Settings"><Icon Name="sliders" Size="20" /><span class="iconlink-label">Settings</span></a>
@@ -108,6 +111,7 @@
 
     protected override void OnInitialized()
     {
+        Theme.Changed += OnThemeChanged;
         Session.Changed += OnChanged; Signals.Changed += OnChanged; Prefs.Changed += OnPrefsChanged; Inspector.Changed += OnInspector; Nav.LocationChanged += OnLocation;
         _tick = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(20));
         if (Session.Discovery == DiscoveryState.Idle) _ = Session.StartDiscoveryAsync();
@@ -118,12 +122,16 @@
         if (!firstRender) return;
         try
         {
+            // Theme: ciw-theme.js already applied it before first paint; read it back so the selector reflects it.
+            Theme.Preference = ThemeState.Parse(await JS.InvokeAsync<string?>("ciwTheme.get"));
+            Theme.SetResolvedFromHost(await JS.InvokeAsync<string>("ciwTheme.resolved") == "dark");
+            _self = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("ciwTheme.subscribe", _self);
             var density = await JS.InvokeAsync<string?>("ciw.getPref", "density");
             var expanded = await JS.InvokeAsync<string?>("ciw.getPref", ExpandedKey);
             var sidebar = await JS.InvokeAsync<string?>("ciw.getPref", "sidebar");
             if (density is "compact") Prefs.Density = Density.Compact;
             if (sidebar is "collapsed") _sidebarCollapsed = true;
-            _self = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("ciw.registerShell", _self);
             if (!string.IsNullOrEmpty(expanded))
             {
@@ -242,6 +250,31 @@
         if (wasNarrow != narrow) await SyncOverlayAsync();
     }
 
+    // The theme preference is applied and stored by ciw-theme.js; only the preference crosses the interop boundary, never page state.
+    private void OnThemeChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            if (!_prefsLoaded) return;
+            try
+            {
+                var resolved = await JS.InvokeAsync<string>("ciwTheme.set", ThemeState.ToKey(Theme.Preference));
+                Theme.SetResolvedFromHost(resolved == "dark");
+            }
+            catch (JSException) { }
+            catch (InvalidOperationException) { }
+        });
+    }
+
+    /// <summary>Another tab changed the stored preference.</summary>
+    [JSInvokable]
+    public Task OnThemePreference(string pref) { Theme.Preference = ThemeState.Parse(pref); return Task.CompletedTask; }
+
+    /// <summary>The operating system changed while System is selected.</summary>
+    [JSInvokable]
+    public Task OnThemeResolved(string resolved) { Theme.SetResolvedFromHost(resolved == "dark"); return Task.CompletedTask; }
+
     private void OnPrefsChanged()
     {
         InvokeAsync(async () =>
@@ -272,7 +305,7 @@
 
     public ValueTask DisposeAsync()
     {
-        Session.Changed -= OnChanged; Signals.Changed -= OnChanged; Prefs.Changed -= OnPrefsChanged; Inspector.Changed -= OnInspector; Nav.LocationChanged -= OnLocation;
+        Session.Changed -= OnChanged; Signals.Changed -= OnChanged; Theme.Changed -= OnThemeChanged; Prefs.Changed -= OnPrefsChanged; Inspector.Changed -= OnInspector; Nav.LocationChanged -= OnLocation;
         _tick?.Dispose(); _self?.Dispose();
         return ValueTask.CompletedTask;
     }

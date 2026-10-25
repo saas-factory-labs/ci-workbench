@@ -26,6 +26,8 @@ Open <http://localhost:5290>: it goes straight to the workflow workspace of a sy
 
 Routes, responsive behaviour and how to try the demo on a phone: [docs/development/responsive-and-mobile-testing.md](docs/development/responsive-and-mobile-testing.md).
 
+Colour tokens, Light/Dark/System theming and the visual, accessibility and theme test tooling: [docs/development/design-system.md](docs/development/design-system.md).
+
 ## Live GitHub (read-only)
 
 Create a **fine-grained personal access token** with *read-only* `Metadata`, `Actions` and `Contents` permissions (details: [docs/development/github-permissions.md](docs/development/github-permissions.md)), then supply it **server-side**:

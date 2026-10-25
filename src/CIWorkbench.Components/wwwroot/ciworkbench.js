@@ -46,6 +46,15 @@ window.ciw = {
     });
   },
 
+  // Arrow-key roving focus inside a menu (role=menu with menuitem / menuitemradio children).
+  moveFocus: (id, dir) => {
+    const root = document.getElementById(id); if (!root) return;
+    const items = Array.from(root.querySelectorAll('[role="menuitem"], [role="menuitemradio"]'));
+    if (!items.length) return;
+    const i = items.indexOf(document.activeElement);
+    items[(i + dir + items.length) % items.length].focus();
+  },
+
   // ---- history, back and scroll restoration (the page is a single-page app; async content defeats the browser's own restoration) ----
   _appNavs: 0, _popped: false,
   // true when this tab already holds an in-app history entry to go back to

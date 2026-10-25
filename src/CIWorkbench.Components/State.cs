@@ -52,6 +52,29 @@ public sealed class UiPreferences
     }
 }
 
+/// <summary>User choice for the colour theme. <see cref="System"/> follows the operating system and is the default.</summary>
+public enum ThemePreference { System, Light, Dark }
+
+/// <summary>
+/// The one source of truth for the theme in a circuit. The host persists <see cref="Preference"/> (localStorage "ciw:theme", via ciw-theme.js)
+/// and reports what System resolved to; components only read and set the preference. Holds no credentials, only a UI choice.
+/// </summary>
+public sealed class ThemeState
+{
+    private ThemePreference _preference = ThemePreference.System;
+    private bool _resolvedDark = true;
+
+    public event Action? Changed;
+
+    public ThemePreference Preference { get => _preference; set { if (_preference != value) { _preference = value; Changed?.Invoke(); } } }
+    /// <summary>What is actually rendered: the preference, or the OS setting when the preference is System. Reported by the host after the browser resolves it.</summary>
+    public bool ResolvedDark => _preference switch { ThemePreference.Dark => true, ThemePreference.Light => false, _ => _resolvedDark };
+    public void SetResolvedFromHost(bool dark) { if (_resolvedDark != dark) { _resolvedDark = dark; Changed?.Invoke(); } }
+
+    public static string ToKey(ThemePreference p) => p switch { ThemePreference.Light => "light", ThemePreference.Dark => "dark", _ => "system" };
+    public static ThemePreference Parse(string? key) => key switch { "light" => ThemePreference.Light, "dark" => ThemePreference.Dark, _ => ThemePreference.System };
+}
+
 /// <summary>Shared selection state between a workspace and whichever host panel renders the inspector.</summary>
 public sealed class InspectorState
 {
@@ -82,6 +105,7 @@ public static class CIWorkbenchComponentsExtensions
     {
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddScoped<UiPreferences>();
+        services.TryAddScoped<ThemeState>();
         services.TryAddScoped<InspectorState>();
         services.TryAddScoped<WorkspaceSignals>();
         services.TryAddScoped(sp => new CachedCi(sp.GetRequiredService<ICiProvider>(), sp.GetRequiredService<TimeProvider>()));

@@ -103,8 +103,8 @@
 
             <section class="ciw-prev-sec" aria-label="Recent runs">
                 <h4>Recent runs <span class="ciw-muted">(oldest → newest)</span></h4>
-                <div class="ciw-strip" role="img" aria-label="@DotsLabel(recent)">
-                    @foreach (var r in recent) { <i class="ciw-sdot @Fmt.StateClass(r.State)" title="#@r.RunNumber · @Fmt.StateLabel(r.State) · @Fmt.Ago(r.SortTime, now)"></i> }
+                <div class="ciw-strip" role="group" aria-label="@DotsLabel(recent)">
+                    @foreach (var r in recent) { <a class="ciw-sdot @Fmt.StateClass(r.State)" href="@Ws.RouteTable.Run(Ws.RepoRef, r.Id)" aria-label="Run #@r.RunNumber, @Fmt.StateLabel(r.State), @Fmt.Ago(r.SortTime, now)" data-tip="#@r.RunNumber · @Fmt.StateLabel(r.State) · @Fmt.Ago(r.SortTime, now)" data-action="open-run"></a> }
                 </div>
             </section>
         </div>
