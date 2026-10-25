@@ -6,8 +6,6 @@
 >
 > **License:** CIWorkbench Community is **source-available**, licensed under **Apache-2.0 with the Commons Clause v1.0**. You may read, use, modify, contribute to and share the software, including internal business use, but **selling CIWorkbench or an offering whose value derives entirely or substantially from CIWorkbench's functionality is restricted**. This is **not OSI-approved open source**. See [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md).
 
-> Status: hackathon MVP, run locally (there is no hosted instance). See [what is implemented vs. planned](#status).
-
 ![CIWorkbench repository workspace in dark mode: health summary, status filters and grouped workflows](docs/screenshots/dark/repository-workspace.webp)
 
 *All screenshots are real captures of the built-in demo mode, which uses fully synthetic data.*
