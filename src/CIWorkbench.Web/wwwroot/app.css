@@ -198,8 +198,9 @@ html.ciw-scroll-lock, html.ciw-scroll-lock body { overflow: hidden; }
 }
 
 /* ---- design system 2.0: brand mark, theme controls ---- */
-.brand-hex { fill: var(--ciw-brand); }
-.brand-check { stroke: var(--ciw-on-brand); }
+.brand-mark { display: block; width: 32px; height: 32px; flex: none; object-fit: contain; }
+.brand-wordmark { white-space: nowrap; }
+.brand-wordmark-ci { color: var(--ciw-brand-text); }
 .theme-phone { display: none; }
 .ciw-thememenu { position: relative; display: inline-flex; }
 .ciw-themebtn { padding: 7px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--ciw-border-control); color: var(--ciw-text-secondary) !important; }
