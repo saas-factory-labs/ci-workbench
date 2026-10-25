@@ -1,1 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#0b1220"/><path d="M16 5l9 5v12l-9 5-9-5V10z" fill="none" stroke="#3b82f6" stroke-width="2.2" stroke-linejoin="round"/><path d="M11.5 16.2l3 3 6-6.2" fill="none" stroke="#22c55e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- CIWorkbench identity: concept 4 — interlocking cobalt/cyan workflow ribbons. -->
+  <defs>
+    <linearGradient id="ciw-ribbon-top" x1="0%" y1="35%" x2="100%" y2="75%">
+      <stop offset="0%" stop-color="#64D0FF"/>
+      <stop offset="49%" stop-color="#258FFF"/>
+      <stop offset="100%" stop-color="#073790"/>
+    </linearGradient>
+    <linearGradient id="ciw-ribbon-bottom" x1="0%" y1="26%" x2="100%" y2="75%">
+      <stop offset="0%" stop-color="#061E68"/>
+      <stop offset="52%" stop-color="#126CF1"/>
+      <stop offset="100%" stop-color="#65CEFC"/>
+    </linearGradient>
+    <linearGradient id="ciw-center-dot" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#249CFF"/>
+      <stop offset="100%" stop-color="#065AE3"/>
+    </linearGradient>
+  </defs>
+  <path d="M7 43 Q7 37 13 33 L55 7 Q64 1 73 7 L116 36 Q123 41 123 49 Q123 58 115 63 L97 74 L97 55 Q97 51 92 48 L72 33 Q65 28 58 33 L7 64 Z" fill="url(#ciw-ribbon-top)"/>
+  <path d="M13 66 L32 53 L32 73 Q32 78 37 81 L56 96 Q64 102 72 97 L121 67 L121 87 Q121 95 114 99 L73 123 Q64 129 55 123 L13 96 Q5 91 5 83 Q5 73 13 66 Z" fill="url(#ciw-ribbon-bottom)"/>
+  <circle cx="65" cy="65" r="13" fill="url(#ciw-center-dot)"/>
+</svg>
