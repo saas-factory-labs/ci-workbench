@@ -27,8 +27,8 @@
     <header class="topbar">
         <button type="button" class="hamburger" @onclick="ToggleNavAsync" aria-label="@NavToggleLabel" aria-expanded="@(NavExpanded ? "true" : "false")" aria-controls="main-nav" title="@NavToggleLabel" data-testid="sidebar-toggle"><Icon Name="menu" Size="20" /></button>
         <a class="brand" href="" aria-label="CIWorkbench home">
-            <svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true"><path class="brand-hex" d="M16 2.5l11.5 6.4v14.2L16 29.5 4.5 23.1V8.9z"/><path class="brand-check" d="M10.5 16.4l4 4 7.2-7.6" fill="none" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span>CIWorkbench</span>
+            <img class="brand-mark" src="ciworkbench-logo.svg" width="32" height="32" alt="" aria-hidden="true" />
+            <span class="brand-wordmark"><span class="brand-wordmark-ci">CI</span>Workbench</span>
         </a>
         <label class="sel sel-org"><Icon Name="layers" Size="22" />
             <span class="sel-text"><small>Organization</small>
