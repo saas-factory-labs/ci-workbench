@@ -8,6 +8,15 @@ public enum Density { Comfortable, Compact }
 
 public enum WorkspaceView { Groups, Failures }
 
+/// <summary>Panel = quick inspector beside a list; Page = the same diagnostics inside a full run page.</summary>
+public enum InspectorMode { Panel, Page }
+
+/// <summary>Tab and filters of the workflow details page; hosts map it to and from their URL.</summary>
+public sealed record WorkflowDetailsQuery(string? Tab = null, string? Q = null, string? Status = null, string? Branch = null, string? Event = null)
+{
+    public static readonly WorkflowDetailsQuery Empty = new();
+}
+
 /// <summary>What the user picked; hosts decide where the inspector lives.</summary>
 public sealed record RunSelection(RepoRef Repo, WorkflowRunInfo Run, string? FocusJob = null);
 
@@ -17,8 +26,13 @@ public sealed class UiPreferences
     private readonly HashSet<string> _expanded = new(StringComparer.Ordinal);
     private Density _density = Density.Comfortable;
     private bool _inspectorOpen;
+    private string _statusFilter = "All";
 
     public event Action? Changed;
+
+    /// <summary>Status filter chip of the workspace and the repository it was chosen for; survives a trip to a detail page and back.</summary>
+    public string StatusFilter { get => _statusFilter; set { if (_statusFilter != value) { _statusFilter = value; Changed?.Invoke(); } } }
+    public RepoRef? FilterRepo { get; set; }
 
     public Density Density { get => _density; set { if (_density != value) { _density = value; Changed?.Invoke(); } } }
     public bool InspectorOpen { get => _inspectorOpen; set { if (_inspectorOpen != value) { _inspectorOpen = value; Changed?.Invoke(); } } }
@@ -30,7 +44,12 @@ public sealed class UiPreferences
         if (expanded ? _expanded.Add(key) : _expanded.Remove(key)) Changed?.Invoke();
     }
     public void Toggle(string key) => SetExpanded(key, !IsExpanded(key));
-    public void RestoreExpanded(IEnumerable<string> keys) { foreach (var k in keys) _expanded.Add(k); }
+    public void RestoreExpanded(IEnumerable<string> keys)
+    {
+        var added = false;
+        foreach (var k in keys) added |= _expanded.Add(k);
+        if (added) Changed?.Invoke();   // components that rendered before the preferences arrived (slower browsers) must pick them up
+    }
 }
 
 /// <summary>Shared selection state between a workspace and whichever host panel renders the inspector.</summary>
@@ -65,6 +84,8 @@ public static class CIWorkbenchComponentsExtensions
         services.TryAddScoped<UiPreferences>();
         services.TryAddScoped<InspectorState>();
         services.TryAddScoped<WorkspaceSignals>();
+        services.TryAddScoped(sp => new CachedCi(sp.GetRequiredService<ICiProvider>(), sp.GetRequiredService<TimeProvider>()));
+        services.TryAddSingleton<CiwRoutes>();
         return services;
     }
 }
