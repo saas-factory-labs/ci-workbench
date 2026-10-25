@@ -2,6 +2,14 @@
 
 **Pitch:** CIWorkbench turns a flat wall of GitHub Actions runs into an organized workspace and tells you *what keeps failing*.
 
+## Licensing for hackathon participants
+
+CIWorkbench Community is **source-available, not OSI open source**, under **Apache-2.0 plus Commons Clause v1.0**. You may explore it, run it locally, use it internally, modify it, and propose pull requests. Selling CIWorkbench itself or a competing offering whose value derives entirely or substantially from its functionality is restricted; see [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md) for the full terms.
+
+**Code contributors:** Please read [CONTRIBUTING.md](CONTRIBUTING.md) and [CLA.md](CLA.md). Contributors keep their copyright but grant separately documented rights needed for the project to use their code in both Community and commercial products. Maintainers must confirm acceptance before merging third-party code. Non-code UX feedback and bug reports do not require the CLA.
+
+**Scope:** Public Community issues/code only. Proprietary performance optimization, runner-cost simulation and premium MCP capabilities belong in a separate private Pro repository; do not implement or copy Pro internals here.
+
 ## 2-minute demo script (no credentials)
 
 1. `dotnet run --project src/CIWorkbench.Web --urls http://localhost:5290`
