@@ -11,6 +11,7 @@ const base = arg('base', 'http://127.0.0.1:5191');
 const out = path.resolve(arg('out', 'out'));
 const themes = arg('themes', 'dark,light').split(',');
 const engine = arg('browser', 'chromium') === 'webkit' ? webkit : chromium;
+const density = arg('density', 'comfortable');
 const REPO = arg('repo', 'example-org/platform-monorepo');
 const ALL = ['320x568', '375x667', '430x932', '440x956', '768x1024', '1366x768', '1536x864', '1920x1080', '3440x1440'];
 const sizes = (arg('only', '') ? arg('only').split(',') : ALL).map((s) => s.split('x').map(Number));
@@ -38,7 +39,7 @@ for (const theme of themes) {
   for (const [w, h] of sizes) {
     const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 1, hasTouch: w < 800, isMobile: w < 800 && engine === chromium, colorScheme: theme === 'dark' ? 'light' : 'dark', reducedMotion: 'reduce' });
     // The explicit choice must override the (deliberately opposite) OS preference.
-    await ctx.addInitScript((t) => { try { localStorage.setItem('ciw:theme', t); } catch { } }, theme);
+    await ctx.addInitScript(([t, d]) => { try { localStorage.setItem('ciw:theme', t); localStorage.setItem('ciw:density', d); } catch { } }, [theme, density]);
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));

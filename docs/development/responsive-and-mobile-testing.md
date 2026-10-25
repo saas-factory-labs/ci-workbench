@@ -67,7 +67,7 @@ Run these once with the iPhone set to Light appearance and once with Dark (Setti
 4. Choose System, then switch the phone between Light and Dark from Control Centre with Safari open: the page follows within a moment, without a reload.
 5. Reload and navigate to another page: the explicit choice persists. Quit and reopen Safari: it still persists (it is stored in this browser only).
 6. In both themes check: card and row boundaries are visible on the small screen, the failed-job callout and log excerpt are readable (the long log line scrolls inside its own box, not the page), status badges are legible, the drawer and the inspector sheet clear the home indicator, and rotating to landscape keeps everything reachable.
-7. Long-press a recent-run dot in a quick preview: it should open that run (the dots are links) and nothing is clipped at 320 pt width.
+7. Tap a recent-run dot in a quick preview: it opens that run (the dots are links), and nothing is clipped at 320 pt width.
 
 This is the only real-Safari verification. The automated WebKit runs use Playwright's WebKit build, which shares the engine but not iOS Safari's chrome, safe areas or dynamic toolbar.
 

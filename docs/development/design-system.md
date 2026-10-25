@@ -24,7 +24,7 @@ Rules, enforced by `DesignTokenTests`:
 
 Light is its own palette, not an inversion: white cards on a cool grey page, crisp `#dde5ef` hairlines, soft cool shadows, darker status hues (for example success `#0f6e46`, danger `#b11f2e`) so tinted badges stay legible, and a light code viewer.
 
-Values that differ from the first suggested palette, and why: Light success `#11754b` became `#0f6e46` and danger `#c92a3b` became `#b11f2e` (badge text on a tint of the same hue reached only 4.4:1); Light neutral is `#536477`; Dark values are as suggested.
+Values that differ from the first suggested palette, and why: Light success `#11754b` became `#0f6e46` and danger `#c92a3b` became `#b11f2e` (badge text on a tint of the same hue reached only 4.4:1); Light neutral is `#536477`. Dark keeps the suggested background, surfaces, text, brand, success and danger; the suggested border `#324154` is `--ciw-border-strong`, with a quieter `--ciw-border` (`#273445`) for hairlines and a lighter `--ciw-border-control` (`#5f7089`) for input outlines, which need 3:1. `--ciw-info` is Dark `#7fb0ff` so it is also usable as text.
 
 ## Theme selection
 

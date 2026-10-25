@@ -163,7 +163,7 @@ public class DesignTokenTests
         foreach (var under in new[] { "--ciw-surface", "--ciw-bg", "--ciw-surface-raised" })
         {
             var u = C(under);
-            foreach (var (fg, soft) in new[] { ("--ciw-success", "--ciw-success-soft"), ("--ciw-danger", "--ciw-danger-soft"), ("--ciw-danger-text", "--ciw-danger-soft"), ("--ciw-warning", "--ciw-warning-soft"), ("--ciw-warning-text", "--ciw-warning-soft"), ("--ciw-neutral", "--ciw-neutral-soft"), ("--ciw-brand-text", "--ciw-brand-subtle"), ("--ciw-brand-text", "--ciw-info-soft") })
+            foreach (var (fg, soft) in new[] { ("--ciw-success", "--ciw-success-soft"), ("--ciw-danger", "--ciw-danger-soft"), ("--ciw-danger-text", "--ciw-danger-soft"), ("--ciw-warning", "--ciw-warning-soft"), ("--ciw-warning-text", "--ciw-warning-soft"), ("--ciw-neutral", "--ciw-neutral-soft"), ("--ciw-brand-text", "--ciw-brand-subtle"), ("--ciw-info", "--ciw-info-soft"), ("--ciw-brand-text", "--ciw-info-soft") })
             {
                 var bg = Contrast.Over(C(soft), u);
                 var fgc = Contrast.Over(C(fg), (bg.Item1, bg.Item2, bg.Item3, 1));
