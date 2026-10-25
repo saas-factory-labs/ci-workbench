@@ -1,5 +1,7 @@
+using TUnit.Assertions.Enums;
 using CIWorkbench.Core.Failures;
 using CIWorkbench.Core.Models;
+using System.Threading.Tasks;
 
 namespace CIWorkbench.Core.Tests;
 
@@ -14,102 +16,102 @@ public class SeriesTests
     private static IReadOnlyList<FailureSeries> Build(IReadOnlyList<FailureObservation> o, IReadOnlyList<WorkflowRunInfo> runs, bool truncated = false) =>
         FailureSeriesBuilder.Build(T.Repo, o, runs, runs.Where(r => r.State == RunState.Failure).Select(r => r.Id).ToHashSet(), truncated);
 
-    [Fact] public void Same_job_step_signature_merges_with_count_first_and_last_seen()
+    [Test] public async Task Same_job_step_signature_merges_with_count_first_and_last_seen()
     {
         var runs = new[] { T.Run(3, Wf, RunState.Failure, 1), T.Run(2, Wf, RunState.Failure, 25), T.Run(1, Wf, RunState.Success, 50) };
         var s = Build(runs.Where(r => r.State == RunState.Failure).Select(r => Obs(r, "test", "Run tests", Sig("boom"))).ToList(), runs).Single();
-        Assert.Equal(2, s.Count);
-        Assert.Equal(T.Now.AddHours(-25), s.FirstSeen);
-        Assert.Equal(T.Now.AddHours(-1), s.LastSeen);
-        Assert.Equal(2, s.Streak);
-        Assert.False(s.StreakIsLowerBound);
+        await Assert.That(s.Count).IsEqualTo(2);
+        await Assert.That(s.FirstSeen).IsEqualTo(T.Now.AddHours(-25));
+        await Assert.That(s.LastSeen).IsEqualTo(T.Now.AddHours(-1));
+        await Assert.That(s.Streak).IsEqualTo(2);
+        await Assert.That(s.StreakIsLowerBound).IsFalse();
     }
 
-    [Fact] public void Same_job_and_step_but_different_errors_stay_separate()
+    [Test] public async Task Same_job_and_step_but_different_errors_stay_separate()
     {
         var r1 = T.Run(1, Wf, RunState.Failure, 1); var r2 = T.Run(2, Wf, RunState.Failure, 2);
         var s = Build([Obs(r1, "e2e", "Run", Sig("TimeoutError: a")), Obs(r2, "e2e", "Run", Sig("Error: Browser missing"))], [r1, r2]);
-        Assert.Equal(2, s.Count);
+        await Assert.That(s.Count).IsEqualTo(2);
     }
 
-    [Fact] public void Same_message_in_different_jobs_or_workflows_does_not_merge()
+    [Test] public async Task Same_message_in_different_jobs_or_workflows_does_not_merge()
     {
         var r1 = T.Run(1, Wf, RunState.Failure, 1); var r2 = T.Run(2, ".github/workflows/other.yml", RunState.Failure, 2);
-        Assert.Equal(3, Build([Obs(r1, "a", "s", Sig("x")), Obs(r1, "b", "s", Sig("x")), Obs(r2, "a", "s", Sig("x"))], [r1, r2]).Count);
+        await Assert.That(Build([Obs(r1, "a", "s", Sig("x")), Obs(r1, "b", "s", Sig("x")), Obs(r2, "a", "s", Sig("x"))], [r1, r2]).Count).IsEqualTo(3);
     }
 
-    [Fact] public void Unknown_never_merges_with_known_and_different_steps_do_not_merge()
+    [Test] public async Task Unknown_never_merges_with_known_and_different_steps_do_not_merge()
     {
         var r1 = T.Run(1, Wf, RunState.Failure, 1); var r2 = T.Run(2, Wf, RunState.Failure, 2);
         var s = Build([Obs(r1, "a", "one", FailureSignature.Unknown), Obs(r2, "a", "one", Sig("x")), Obs(r2, "a", "two", FailureSignature.Unknown)], [r1, r2]);
-        Assert.Equal(3, s.Count);
+        await Assert.That(s.Count).IsEqualTo(3);
     }
 
-    [Fact] public void Two_unknowns_in_same_step_merge_and_are_flagged_cause_unknown()
+    [Test] public async Task Two_unknowns_in_same_step_merge_and_are_flagged_cause_unknown()
     {
         var r1 = T.Run(1, Wf, RunState.Failure, 1); var r2 = T.Run(2, Wf, RunState.Failure, 2);
         var s = Build([Obs(r1, "a", "one", FailureSignature.Unknown), Obs(r2, "a", "one", FailureSignature.Unknown)], [r1, r2]).Single();
-        Assert.True(s.CauseUnknown);
+        await Assert.That(s.CauseUnknown).IsTrue();
     }
 
-    [Fact] public void Unavailable_log_is_its_own_state_not_unknown()
+    [Test] public async Task Unavailable_log_is_its_own_state_not_unknown()
     {
         var r1 = T.Run(1, Wf, RunState.Failure, 1); var r2 = T.Run(2, Wf, RunState.Failure, 2);
         var s = Build([Obs(r1, "a", "one", FailureSignature.Unavailable), Obs(r2, "a", "one", FailureSignature.Unknown)], [r1, r2]);
-        Assert.Equal(2, s.Count);
-        Assert.Contains(s, x => x.LogUnavailable);
+        await Assert.That(s.Count).IsEqualTo(2);
+        await Assert.That(s).Contains(x => x.LogUnavailable);
     }
 
-    [Fact] public void Matrix_variants_merge_and_are_recorded()
+    [Test] public async Task Matrix_variants_merge_and_are_recorded()
     {
         var r1 = T.Run(1, Wf, RunState.Failure, 1); var r2 = T.Run(2, Wf, RunState.Failure, 2);
         var s = Build([Obs(r1, "build (ubuntu, 20)", "Test", Sig("x")), Obs(r2, "build (windows, 22)", "Test", Sig("x"))], [r1, r2]).Single();
-        Assert.Equal("build", s.Key.JobKey);
-        Assert.Equal(["build (ubuntu, 20)", "build (windows, 22)"], s.Variants);
+        await Assert.That(s.Key.JobKey).IsEqualTo("build");
+        await Assert.That(s.Variants).IsEquivalentTo(["build (ubuntu, 20)", "build (windows, 22)"], CollectionOrdering.Matching);
     }
 
-    [Fact] public void Missing_step_uses_job_setup_key()
+    [Test] public async Task Missing_step_uses_job_setup_key()
     {
         var r1 = T.Run(1, Wf, RunState.Failure, 1);
-        Assert.Equal(FailureSeriesBuilder.JobSetupStep, Build([Obs(r1, "a", "", Sig("x"))], [r1]).Single().Key.StepKey);
+        await Assert.That(Build([Obs(r1, "a", "", Sig("x"))], [r1]).Single().Key.StepKey).IsEqualTo(FailureSeriesBuilder.JobSetupStep);
     }
 
-    [Fact] public void Cancelled_between_two_failures_does_not_break_streak()
+    [Test] public async Task Cancelled_between_two_failures_does_not_break_streak()
     {
         var runs = new[] { T.Run(3, Wf, RunState.Failure, 1), T.Run(2, Wf, RunState.Cancelled, 2), T.Run(1, Wf, RunState.Failure, 3), T.Run(0, Wf, RunState.Success, 4) };
         var s = Build([Obs(runs[0], "a", "s", Sig("x")), Obs(runs[2], "a", "s", Sig("x"))], runs).Single();
-        Assert.Equal(2, s.Streak); Assert.False(s.StreakIsLowerBound);
+        await Assert.That(s.Streak).IsEqualTo(2); await Assert.That(s.StreakIsLowerBound).IsFalse();
     }
 
-    [Fact] public void Success_in_between_breaks_streak_but_occurrences_keep_counting()
+    [Test] public async Task Success_in_between_breaks_streak_but_occurrences_keep_counting()
     {
         var runs = new[] { T.Run(3, Wf, RunState.Failure, 1), T.Run(2, Wf, RunState.Success, 2), T.Run(1, Wf, RunState.Failure, 3) };
         var s = Build([Obs(runs[0], "a", "s", Sig("x")), Obs(runs[2], "a", "s", Sig("x"))], runs).Single();
-        Assert.Equal(1, s.Streak); Assert.Equal(2, s.Count);
+        await Assert.That(s.Streak).IsEqualTo(1); await Assert.That(s.Count).IsEqualTo(2);
     }
 
-    [Fact] public void Different_failure_in_between_breaks_the_streak()
+    [Test] public async Task Different_failure_in_between_breaks_the_streak()
     {
         var runs = new[] { T.Run(3, Wf, RunState.Failure, 1), T.Run(2, Wf, RunState.Failure, 2), T.Run(1, Wf, RunState.Failure, 3) };
         var obs = new[] { Obs(runs[0], "a", "s", Sig("x")), Obs(runs[1], "a", "s", Sig("y")), Obs(runs[2], "a", "s", Sig("x")) };
-        Assert.Equal(1, Build(obs, runs).Single(s => s.Key.Signature == "x").Streak);
+        await Assert.That(Build(obs, runs).Single(s => s.Key.Signature == "x").Streak).IsEqualTo(1);
     }
 
-    [Fact] public void Streak_reaching_window_edge_is_a_lower_bound()
+    [Test] public async Task Streak_reaching_window_edge_is_a_lower_bound()
     {
         var runs = new[] { T.Run(2, Wf, RunState.Failure, 1), T.Run(1, Wf, RunState.Failure, 2) };
         var s = Build(runs.Select(r => Obs(r, "a", "s", Sig("x"))).ToList(), runs, truncated: true).Single();
-        Assert.Equal(2, s.Streak); Assert.True(s.StreakIsLowerBound);
+        await Assert.That(s.Streak).IsEqualTo(2); await Assert.That(s.StreakIsLowerBound).IsTrue();
     }
 
-    [Fact] public void Uninspected_failed_run_makes_streak_a_lower_bound()
+    [Test] public async Task Uninspected_failed_run_makes_streak_a_lower_bound()
     {
         var runs = new[] { T.Run(2, Wf, RunState.Failure, 1), T.Run(1, Wf, RunState.Failure, 2) };
         var s = FailureSeriesBuilder.Build(T.Repo, [Obs(runs[0], "a", "s", Sig("x"))], runs, new HashSet<long> { 2 }, false).Single();
-        Assert.Equal(1, s.Streak); Assert.True(s.StreakIsLowerBound);
+        await Assert.That(s.Streak).IsEqualTo(1); await Assert.That(s.StreakIsLowerBound).IsTrue();
     }
 
-    [Fact] public void Feature_branch_runs_do_not_break_or_extend_a_main_branch_streak()
+    [Test] public async Task Feature_branch_runs_do_not_break_or_extend_a_main_branch_streak()
     {
         var runs = new[]
         {
@@ -117,43 +119,43 @@ public class SeriesTests
             T.Run(2, Wf, RunState.Failure, 3), T.Run(1, Wf, RunState.Failure, 4, branch: "feat/x"),
         };
         var s = Build([Obs(runs[0], "a", "s", Sig("x")), Obs(runs[2], "a", "s", Sig("x"))], runs).Single();
-        Assert.Equal(2, s.Streak);
+        await Assert.That(s.Streak).IsEqualTo(2);
     }
 
-    [Fact] public void Single_failure_is_not_recurring_and_two_are()
+    [Test] public async Task Single_failure_is_not_recurring_and_two_are()
     {
         var r1 = T.Run(1, Wf, RunState.Failure, 1); var r2 = T.Run(2, Wf, RunState.Failure, 2);
-        Assert.False(Build([Obs(r1, "a", "s", Sig("x"))], [r1]).Single().IsRecurring);
-        Assert.True(Build([Obs(r1, "a", "s", Sig("x")), Obs(r2, "a", "s", Sig("x"))], [r1, r2]).Single().IsRecurring);
+        await Assert.That(Build([Obs(r1, "a", "s", Sig("x"))], [r1]).Single().IsRecurring).IsFalse();
+        await Assert.That(Build([Obs(r1, "a", "s", Sig("x")), Obs(r2, "a", "s", Sig("x"))], [r1, r2]).Single().IsRecurring).IsTrue();
     }
 
-    [Fact] public void Scheduled_and_push_runs_in_the_same_workflow_count_together()
+    [Test] public async Task Scheduled_and_push_runs_in_the_same_workflow_count_together()
     {
         var runs = new[] { T.Run(2, Wf, RunState.Failure, 1, ev: "schedule"), T.Run(1, Wf, RunState.Failure, 2, ev: "push") };
-        Assert.Equal(2, Build(runs.Select(r => Obs(r, "a", "s", Sig("x"))).ToList(), runs).Single().Count);
+        await Assert.That(Build(runs.Select(r => Obs(r, "a", "s", Sig("x"))).ToList(), runs).Single().Count).IsEqualTo(2);
     }
 }
 
 public class AgentContextTests
 {
-    [Theory]
-    [InlineData("token ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789")]
-    [InlineData("github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz")]
-    [InlineData("Authorization: Bearer abcdefghijklmnop12345")]
-    [InlineData("password=hunter2hunter2")]
-    public void Secrets_are_redacted(string text)
+    [Test]
+    [Arguments("token ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789")]
+    [Arguments("github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz")]
+    [Arguments("Authorization: Bearer abcdefghijklmnop12345")]
+    [Arguments("password=hunter2hunter2")]
+    public async Task Secrets_are_redacted(string text)
     {
         var o = AgentContext.Build(T.Repo, T.Run(1, "a.yml", RunState.Failure, 1), "job", "step", null, text);
-        Assert.Contains("[REDACTED]", o);
-        Assert.DoesNotContain("hunter2", o);
-        Assert.DoesNotContain("ghp_abc", o);
+        await Assert.That(o).Contains("[REDACTED]");
+        await Assert.That(o).DoesNotContain("hunter2");
+        await Assert.That(o).DoesNotContain("ghp_abc");
     }
 
-    [Fact] public void Excerpt_is_bounded_and_includes_identity()
+    [Test] public async Task Excerpt_is_bounded_and_includes_identity()
     {
         var o = AgentContext.Build(T.Repo, T.Run(7, "a.yml", RunState.Failure, 1), "job", "step", "desc", new string('x', 50_000));
-        Assert.True(o.Length < AgentContext.MaxExcerptChars + 1500);
-        Assert.Contains("example-org/demo", o); Assert.Contains("a.yml", o); Assert.Contains("https://example.test/runs/7", o);
+        await Assert.That(o.Length < AgentContext.MaxExcerptChars + 1500).IsTrue();
+        await Assert.That(o).Contains("example-org/demo"); await Assert.That(o).Contains("a.yml"); await Assert.That(o).Contains("https://example.test/runs/7");
     }
 }
 
@@ -164,24 +166,24 @@ public class DemoFixtureTests
 
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider { public override DateTimeOffset GetUtcNow() => now; }
 
-    [Fact] public async Task Monorepo_has_many_workflows_and_all_are_grouped_exactly_once()
+    [Test] public async Task Monorepo_has_many_workflows_and_all_are_grouped_exactly_once()
     {
         var p = new CIWorkbench.Core.Demo.DemoCiProvider(Clock);
         var wfs = await p.ListWorkflowsAsync(CIWorkbench.Core.Demo.DemoCiProvider.Monorepo, default);
-        Assert.InRange(wfs.Count, 35, 45);
+        await Assert.That(wfs.Count).IsBetween(35,45);
         var yaml = await p.GetFileAsync(CIWorkbench.Core.Demo.DemoCiProvider.Monorepo, ".ciworkbench.yml", default);
         var (cfg, warn) = CIWorkbench.Core.Grouping.GroupConfigParser.Parse(yaml);
-        Assert.Null(warn);
+        await Assert.That(warn).IsNull();
         var comments = new Dictionary<string, string?>();
         foreach (var w in wfs) comments[w.Path] = CIWorkbench.Core.Grouping.WorkflowGroupResolver.ExtractCommentGroup(await p.GetFileAsync(CIWorkbench.Core.Demo.DemoCiProvider.Monorepo, w.Path, default));
         var res = CIWorkbench.Core.Grouping.WorkflowGroupResolver.Resolve(wfs, cfg, comments);
-        Assert.Equal(wfs.Count, res.AllWorkflows.Count());
+        await Assert.That(res.AllWorkflows.Count()).IsEqualTo(wfs.Count);
         var names = res.Groups.Select(g => g.Name).ToList();
-        foreach (var expected in new[] { "Build & Test", "Security", "Deployment", "Quality", "Packages", "Documentation", "Maintenance", "AI Agents" }) Assert.Contains(expected, names);
-        Assert.DoesNotContain(res.Groups, g => g.Name == "Ungrouped");
+        foreach (var expected in new[] { "Build & Test", "Security", "Deployment", "Quality", "Packages", "Documentation", "Maintenance", "AI Agents" }) await Assert.That(names).Contains(expected);
+        await Assert.That(res.Groups).DoesNotContain(g => g.Name == "Ungrouped");
     }
 
-    [Fact] public async Task Actor_repo_yields_two_distinct_series_and_keeps_same_job_different_error_apart()
+    [Test] public async Task Actor_repo_yields_two_distinct_series_and_keeps_same_job_different_error_apart()
     {
         var p = new CIWorkbench.Core.Demo.DemoCiProvider(Clock);
         var repo = CIWorkbench.Core.Demo.DemoCiProvider.ActorRepo;
@@ -190,12 +192,12 @@ public class DemoFixtureTests
         var paging = analysis.Series.Single(s => s.Key.JobKey == "Deep-paging test");
         var browser = analysis.Series.Single(s => s.Key.JobKey == "Browser scenario tests" && s.Raw().Contains("Executable"));
         var assertion = analysis.Series.Single(s => s.Key.JobKey == "Browser scenario tests" && s.Raw().Contains("AssertionError"));
-        Assert.Equal(15, paging.Count); Assert.Equal(15, paging.Streak);
-        Assert.Equal(10, browser.Count); Assert.Equal(9, browser.Streak);
-        Assert.Equal(1, assertion.Count);
-        Assert.Equal(3, analysis.Series.Count);
-        Assert.Equal(2, analysis.Recurring.Count);                 // the single AssertionError is a one-off, not a recurring series
-        Assert.False(assertion.IsRecurring);
+        await Assert.That(paging.Count).IsEqualTo(15); await Assert.That(paging.Streak).IsEqualTo(15);
+        await Assert.That(browser.Count).IsEqualTo(10); await Assert.That(browser.Streak).IsEqualTo(9);
+        await Assert.That(assertion.Count).IsEqualTo(1);
+        await Assert.That(analysis.Series.Count).IsEqualTo(3);
+        await Assert.That(analysis.Recurring.Count).IsEqualTo(2);                 // the single AssertionError is a one-off, not a recurring series
+        await Assert.That(assertion.IsRecurring).IsFalse();
     }
 }
 

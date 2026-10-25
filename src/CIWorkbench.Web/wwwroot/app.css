@@ -222,3 +222,86 @@ html.ciw-scroll-lock, html.ciw-scroll-lock body { overflow: hidden; }
 }
 
 .text-danger { color: var(--ciw-danger-text); }
+
+/* ---- Overview: global CI triage. Same surfaces, radii and chips as the workspace; the ov- classes only add layout. ---- */
+.ov-scope { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; color: var(--ciw-muted); font-size: var(--ciw-fs-sm); }
+.ov-scope select, .ov-select select { background: var(--ciw-surface-2); color: var(--ciw-fg); border: 1px solid var(--ciw-border-control); border-radius: 8px; padding: 5px 8px; font: inherit; max-width: 100%; }
+.ov-onboard { margin-top: 14px; }
+.ov-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--ciw-kpi-gap, 12px); margin: 16px 0 12px; }
+.ov-card { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: var(--ciw-card-pad, 14px) 16px; border: 0; border-radius: var(--ciw-radius); background: var(--ciw-surface); color: var(--ciw-fg); cursor: pointer; font: inherit; box-shadow: var(--ciw-card-shadow); min-width: 0; transition: background var(--ciw-t) var(--ciw-ease), box-shadow var(--ciw-t) var(--ciw-ease); }
+.ov-card:hover { background: var(--ciw-surface-2); box-shadow: inset 0 0 0 1px var(--ciw-border-strong); }
+.ov-card.on { box-shadow: inset 0 0 0 1px var(--ciw-accent); background: var(--ciw-accent-soft); }
+.ov-card-label { font-size: var(--ciw-fs-sm); font-weight: 500; color: var(--ciw-muted); }
+.ov-card-value { font-size: 28px; font-weight: 600; letter-spacing: -.02em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.ov-card.bad .ov-card-value { color: var(--ciw-failure); }
+.ov-card-sub { font-size: var(--ciw-fs-sm); color: var(--ciw-muted); overflow-wrap: anywhere; }
+.ov-scan { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: var(--ciw-fs-sm); color: var(--ciw-muted); margin-bottom: 14px; }
+.ov-scan progress { width: 90px; height: 5px; margin-right: 8px; vertical-align: middle; accent-color: var(--ciw-accent); }
+.ov-scan-note { margin-left: auto; }
+.ov-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px 18px; flex-wrap: wrap; }
+.ov-selects { display: inline-flex; gap: 12px; flex-wrap: wrap; }
+.ov-select { display: inline-flex; align-items: center; gap: 8px; font-size: var(--ciw-fs-sm); color: var(--ciw-muted); }
+.ov-count { font-size: var(--ciw-fs-sm); font-weight: 400; margin-left: 6px; }
+
+.ov-list { display: flex; flex-direction: column; }
+.ov-row { display: grid; grid-template-columns: minmax(200px, 1.3fr) minmax(0, 1.6fr) minmax(150px, auto) 110px 100px; gap: 6px 16px; align-items: center; padding: 10px 14px; min-width: 0; }
+.ov-row.ov-head { font-size: var(--ciw-fs-label); text-transform: uppercase; letter-spacing: .04em; color: var(--ciw-muted); padding-block: 6px; border-bottom: 1px solid var(--ciw-border); }
+.ov-item { border-bottom: 1px solid var(--ciw-border); }
+.ov-item:hover { background: var(--ciw-surface); }
+.ov-item.open { background: var(--ciw-surface); border-radius: var(--ciw-radius); box-shadow: inset 2px 0 0 var(--ciw-failure); }
+.ov-item[data-health="recovered"].open, .ov-item[data-health="healthy"].open, .ov-item[data-health="unknown"].open { box-shadow: inset 2px 0 0 var(--ciw-border-strong); }
+.ov-toggle { display: flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; }
+.ov-name { display: flex; flex-direction: column; min-width: 0; } .ov-name strong { font-weight: 500; overflow-wrap: anywhere; } .ov-name small { font-size: var(--ciw-fs-sm); overflow-wrap: anywhere; }
+.ov-summary { display: flex; flex-direction: column; min-width: 0; } .ov-summary .clamp, .ov-timeline .clamp { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-meta { display: inline-flex; align-items: center; gap: 5px; font-size: var(--ciw-fs-sm); }
+.ov-status { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ov-tag { font-style: normal; font-size: var(--ciw-fs-label); padding: 1px 7px; border-radius: 5px; background: var(--ciw-neutral-soft); color: var(--ciw-muted); }
+.ov-tag.bad { background: var(--ciw-failure-soft); color: var(--ciw-failure); } .ov-tag.run { background: var(--ciw-accent-soft); color: var(--ciw-brand-text); }
+.ov-when, .ov-count-cell, .ov-rate { font-size: var(--ciw-fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ov-detail { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px 24px; padding: 4px 14px 16px 38px; }
+.ov-detail-main { min-width: 0; } .ov-step { margin: 0 0 8px; } .ov-step .ciw-muted { margin-right: 8px; }
+.ov-sub { font-size: var(--ciw-fs-sm); font-weight: 500; color: var(--ciw-muted); margin: 8px 0 6px; }
+.ov-timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: var(--ciw-fs-sm); }
+.ov-timeline li { display: flex; gap: 10px; align-items: baseline; min-width: 0; flex-wrap: wrap; }
+.ov-links { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+
+.ov-split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 8px 28px; align-items: start; }
+.ov-repo-row, .ov-act { display: grid; align-items: center; gap: 4px 14px; padding: 9px 14px; border-bottom: 1px solid var(--ciw-border); color: var(--ciw-fg); text-decoration: none; min-width: 0; }
+.ov-repo-row { grid-template-columns: minmax(0, 1.4fr) minmax(110px, auto) 56px 90px; }
+.ov-act { grid-template-columns: auto minmax(0, 1fr) auto; }
+.ov-repo-row:hover, .ov-act:hover { background: var(--ciw-surface); }
+.ov-rate { text-align: right; }
+
+/* ---- live-connection onboarding ---- */
+.ob-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; } .ob-head h2 { margin: 0 !important; }
+.ob-lede { max-width: 70ch; }
+.ob-h { font-size: var(--ciw-fs-sm); font-weight: 600; color: var(--ciw-muted); text-transform: uppercase; letter-spacing: .04em; margin: 16px 0 6px; }
+.ob-perms { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ob-perms li { display: grid; grid-template-columns: 90px auto minmax(0, 1fr); gap: 4px 12px; align-items: baseline; padding: 8px 12px; border-radius: 8px; background: var(--ciw-surface-2); }
+.ob-level { font-size: var(--ciw-fs-label); padding: 1px 8px; border-radius: 999px; background: var(--ciw-success-soft); color: var(--ciw-success); white-space: nowrap; }
+.ob-fine { font-size: var(--ciw-fs-sm); margin: 8px 0 !important; }
+.ob-steps { margin-top: 12px; } .ob-steps summary { cursor: pointer; font-weight: 500; } .ob-steps ol { margin: 10px 0; padding-left: 22px; display: grid; gap: 6px; }
+.ob-actions { display: flex; gap: 10px 14px; flex-wrap: wrap; align-items: center; margin-top: 14px; } .ob-org { display: inline-flex; align-items: center; gap: 8px; font-size: var(--ciw-fs-sm); color: var(--ciw-muted); }
+.ob-org select { background: var(--ciw-surface-2); color: var(--ciw-fg); border: 1px solid var(--ciw-border-control); border-radius: 8px; padding: 5px 8px; font: inherit; }
+
+@media (max-width: 1100px) {
+  .ov-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ov-split { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .ov-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .ov-card { padding: 12px; } .ov-card-value { font-size: 24px; }
+  .ov-scope { margin-left: 0; width: 100%; } .ov-scan-note { margin-left: 0; width: 100%; }
+  .ov-selects, .ov-select, .ov-select select { width: 100%; } .ov-select { justify-content: space-between; }
+  .ov-row.ov-head { display: none; }
+  .ov-row { grid-template-columns: minmax(0, 1fr); padding: 12px 10px; }
+  .ov-row > [data-label]::before { content: attr(data-label); display: block; font-size: var(--ciw-fs-label); text-transform: uppercase; letter-spacing: .04em; color: var(--ciw-muted); margin-bottom: 2px; }
+  .ov-toggle { min-height: 44px; }
+  .ov-detail { grid-template-columns: minmax(0, 1fr); padding: 4px 10px 14px; }
+  .ov-links { flex-direction: row; flex-wrap: wrap; }
+  .ov-repo-row { grid-template-columns: minmax(0, 1fr) auto; } .ov-repo-row .ov-rate, .ov-repo-row .ov-when { text-align: left; }
+  .ov-act { grid-template-columns: minmax(0, 1fr) auto; } .ov-act > :first-child { grid-column: 1 / -1; justify-self: start; }
+  .ob-perms li { grid-template-columns: minmax(0, 1fr) auto; } .ob-perms li > :last-child { grid-column: 1 / -1; }
+}
+.ciw-root .ov-repo-row, .ciw-root .ov-repo-row:visited, .ciw-root .ov-act, .ciw-root .ov-act:visited { color: var(--ciw-fg); }
+.ciw-root .ov-repo-row strong, .ciw-root .ov-act strong { color: var(--ciw-fg); font-weight: 500; }

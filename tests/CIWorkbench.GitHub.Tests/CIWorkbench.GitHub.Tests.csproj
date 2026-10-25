@@ -4,14 +4,10 @@
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="coverlet.collector" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" />
-    <PackageReference Include="xunit" />
-    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="TUnit" />
     <ProjectReference Include="..\..\src\CIWorkbench.GitHub\CIWorkbench.GitHub.csproj" />
     <PackageReference Include="NSubstitute" />
     <ProjectReference Include="..\..\src\CIWorkbench.Core\CIWorkbench.Core.csproj" />
-    <Using Include="Xunit" />
   </ItemGroup>
 </Project>
 

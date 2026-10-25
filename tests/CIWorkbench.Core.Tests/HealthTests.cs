@@ -1,5 +1,6 @@
 using CIWorkbench.Core.Health;
 using CIWorkbench.Core.Models;
+using System.Threading.Tasks;
 
 namespace CIWorkbench.Core.Tests;
 
@@ -9,97 +10,97 @@ public class HealthTests
     private static WorkflowRunInfo R(long id, RunState s, int hoursAgo, string branch = "main") => T.Run(id, P, s, hoursAgo, branch);
     private static WorkflowHealth Assess(string? def, bool? recurring, params WorkflowRunInfo[] runs) => WorkflowHealthAnalyzer.Assess(runs, def, recurring, T.Now);
 
-    [Fact]
-    public void Latest_failure_is_failing_now_and_needs_attention()
+    [Test]
+    public async Task Latest_failure_is_failing_now_and_needs_attention()
     {
         var h = Assess("main", null, R(1, RunState.Failure, 2), R(2, RunState.Success, 30));
-        Assert.Equal(HealthKind.FailingNow, h.Kind);
-        Assert.True(h.NeedsAttention);
-        Assert.False(h.Recurring);       // no analysis => not claimed
+        await Assert.That(h.Kind).IsEqualTo(HealthKind.FailingNow);
+        await Assert.That(h.NeedsAttention).IsTrue();
+        await Assert.That(h.Recurring).IsFalse();       // no analysis => not claimed
     }
 
-    [Fact]
-    public void Newer_success_supersedes_older_failure_and_is_recovered_not_failing()
+    [Test]
+    public async Task Newer_success_supersedes_older_failure_and_is_recovered_not_failing()
     {
         var h = Assess("main", null, R(1, RunState.Success, 2), R(2, RunState.Failure, 30), R(3, RunState.Success, 60));
-        Assert.Equal(HealthKind.Recovered, h.Kind);
-        Assert.False(h.NeedsAttention);
+        await Assert.That(h.Kind).IsEqualTo(HealthKind.Recovered);
+        await Assert.That(h.NeedsAttention).IsFalse();
     }
 
-    [Fact]
-    public void Success_with_no_earlier_failure_is_healthy()
+    [Test]
+    public async Task Success_with_no_earlier_failure_is_healthy()
     {
-        Assert.Equal(HealthKind.Healthy, Assess("main", null, R(1, RunState.Success, 2), R(2, RunState.Success, 30)).Kind);
+        await Assert.That(Assess("main", null, R(1, RunState.Success, 2), R(2, RunState.Success, 30)).Kind).IsEqualTo(HealthKind.Healthy);
     }
 
-    [Fact]
-    public void Failure_beyond_the_recovery_window_is_history_not_recovery()
+    [Test]
+    public async Task Failure_beyond_the_recovery_window_is_history_not_recovery()
     {
         var runs = new List<WorkflowRunInfo> { R(1, RunState.Success, 1), R(99, RunState.Failure, 500) };
         for (var i = 0; i < WorkflowHealthAnalyzer.RecoveryWindowVerdicts; i++) runs.Add(R(10 + i, RunState.Success, 10 + i * 5));
         runs = [.. runs.OrderBy(r => r.Id == 99 ? 1 : 0)];
-        Assert.Equal(HealthKind.Healthy, WorkflowHealthAnalyzer.Assess(runs, "main", null, T.Now).Kind);
+        await Assert.That(WorkflowHealthAnalyzer.Assess(runs, "main", null, T.Now).Kind).IsEqualTo(HealthKind.Healthy);
     }
 
-    [Fact]
-    public void Cancelled_skipped_and_active_runs_never_decide_health()
+    [Test]
+    public async Task Cancelled_skipped_and_active_runs_never_decide_health()
     {
         var h = Assess("main", null, R(1, RunState.InProgress, 0), R(2, RunState.Cancelled, 1), R(3, RunState.Skipped, 2), R(4, RunState.Failure, 3));
-        Assert.Equal(HealthKind.FailingNow, h.Kind);
-        Assert.True(h.HasActiveRun);
-        Assert.Equal(4, h.Verdict!.Id);
+        await Assert.That(h.Kind).IsEqualTo(HealthKind.FailingNow);
+        await Assert.That(h.HasActiveRun).IsTrue();
+        await Assert.That(h.Verdict!.Id).IsEqualTo(4);
     }
 
-    [Fact]
-    public void Only_cancelled_or_active_runs_means_unknown()
+    [Test]
+    public async Task Only_cancelled_or_active_runs_means_unknown()
     {
-        Assert.Equal(HealthKind.Unknown, Assess("main", null, R(1, RunState.Cancelled, 1), R(2, RunState.Queued, 0)).Kind);
-        Assert.Equal(HealthKind.Unknown, Assess("main", null).Kind);
+        await Assert.That(Assess("main", null, R(1, RunState.Cancelled, 1), R(2, RunState.Queued, 0)).Kind).IsEqualTo(HealthKind.Unknown);
+        await Assert.That(Assess("main", null).Kind).IsEqualTo(HealthKind.Unknown);
     }
 
-    [Fact]
-    public void Old_failure_is_stale_and_does_not_need_attention()
+    [Test]
+    public async Task Old_failure_is_stale_and_does_not_need_attention()
     {
         var h = Assess("main", null, R(1, RunState.Failure, 24 * 40));
-        Assert.Equal(HealthKind.FailingNow, h.Kind);
-        Assert.True(h.Stale);
-        Assert.False(h.NeedsAttention);
+        await Assert.That(h.Kind).IsEqualTo(HealthKind.FailingNow);
+        await Assert.That(h.Stale).IsTrue();
+        await Assert.That(h.NeedsAttention).IsFalse();
     }
 
-    [Fact]
-    public void Feature_branch_failure_does_not_make_a_default_branch_workflow_fail()
+    [Test]
+    public async Task Feature_branch_failure_does_not_make_a_default_branch_workflow_fail()
     {
         var h = Assess("main", null, R(1, RunState.Failure, 1, "feat/x"), R(2, RunState.Success, 5, "main"));
-        Assert.Equal(HealthKind.Healthy, h.Kind);
-        Assert.Equal("main", h.ScopedToBranch);
+        await Assert.That(h.Kind).IsEqualTo(HealthKind.Healthy);
+        await Assert.That(h.ScopedToBranch).IsEqualTo("main");
     }
 
-    [Fact]
-    public void Without_default_branch_data_or_default_runs_every_branch_counts()
+    [Test]
+    public async Task Without_default_branch_data_or_default_runs_every_branch_counts()
     {
-        Assert.Equal(HealthKind.FailingNow, Assess(null, null, R(1, RunState.Failure, 1, "feat/x")).Kind);
-        Assert.Equal(HealthKind.FailingNow, Assess("main", null, R(1, RunState.Failure, 1, "feat/x")).Kind);
+        await Assert.That(Assess(null, null, R(1, RunState.Failure, 1, "feat/x")).Kind).IsEqualTo(HealthKind.FailingNow);
+        await Assert.That(Assess("main", null, R(1, RunState.Failure, 1, "feat/x")).Kind).IsEqualTo(HealthKind.FailingNow);
     }
 
-    [Fact]
-    public void Recurring_requires_evidence_and_ranks_first()
+    [Test]
+    public async Task Recurring_requires_evidence_and_ranks_first()
     {
         var recurring = Assess("main", true, R(1, RunState.Failure, 2));
         var plain = Assess("main", false, R(1, RunState.Failure, 2));
         var healthy = Assess("main", null, R(1, RunState.Success, 2));
-        Assert.True(recurring.Recurring); Assert.False(plain.Recurring);
-        Assert.True(recurring.Priority < plain.Priority);
-        Assert.True(plain.Priority < healthy.Priority);
+        await Assert.That(recurring.Recurring).IsTrue(); await Assert.That(plain.Recurring).IsFalse();
+        await Assert.That(recurring.Priority < plain.Priority).IsTrue();
+        await Assert.That(plain.Priority < healthy.Priority).IsTrue();
     }
 
-    [Fact]
-    public void Recovery_is_not_flagged_recurring()
+    [Test]
+    public async Task Recovery_is_not_flagged_recurring()
     {
-        Assert.False(Assess("main", true, R(1, RunState.Success, 2), R(2, RunState.Failure, 9)).Recurring);
+        await Assert.That(Assess("main", true, R(1, RunState.Success, 2), R(2, RunState.Failure, 9)).Recurring).IsFalse();
     }
 
-    [Fact]
-    public void Attention_kpi_separates_failing_stale_and_recovered()
+    [Test]
+    public async Task Attention_kpi_separates_failing_stale_and_recovered()
     {
         var hs = new[]
         {
@@ -109,7 +110,7 @@ public class HealthTests
             Assess("main", null, R(1, RunState.Success, 2)),
         };
         var k = Kpis.Attention(hs);
-        Assert.Equal((1, 1, 1, 4), (k.FailingNow, k.Stale, k.Recovered, k.Total));
+        await Assert.That((k.FailingNow, k.Stale, k.Recovered, k.Total)).IsEqualTo((1, 1, 1, 4));
     }
 
     private static List<WorkflowRunInfo> Window(int count, Func<int, RunState> state, Func<int, TimeSpan>? dur = null) =>
@@ -119,50 +120,50 @@ public class HealthTests
             return new WorkflowRunInfo(i + 1, 1, P, "CI", i, 1, state(i), "push", "main", "abc", null, "a", started, started, started + (dur?.Invoke(i) ?? TimeSpan.FromMinutes(5)), "https://x.test/");
         }).ToList();
 
-    [Fact]
-    public void Success_rate_excludes_cancelled_and_skipped()
+    [Test]
+    public async Task Success_rate_excludes_cancelled_and_skipped()
     {
         var k = Kpis.SuccessRate(Window(10, i => i switch { < 6 => RunState.Success, < 8 => RunState.Failure, 8 => RunState.Cancelled, _ => RunState.Skipped }));
-        Assert.Equal(0.75, k.Rate);
-        Assert.Equal((6, 2, 10), (k.Succeeded, k.Failed, k.RunsInScope));
-        Assert.Null(k.Trend);            // too little data for a comparison
+        await Assert.That(k.Rate).IsEqualTo(0.75);
+        await Assert.That((k.Succeeded, k.Failed, k.RunsInScope)).IsEqualTo((6, 2, 10));
+        await Assert.That(k.Trend).IsNull();            // too little data for a comparison
     }
 
-    [Fact]
-    public void Success_rate_trend_compares_newer_half_with_older_half_only_with_enough_data()
+    [Test]
+    public async Task Success_rate_trend_compares_newer_half_with_older_half_only_with_enough_data()
     {
         // newest 15 all succeed, oldest 15 half fail => +50 points
         var runs = Window(30, i => i < 15 ? RunState.Success : i % 2 == 0 ? RunState.Success : RunState.Failure);
         var trend = Kpis.SuccessRate(runs).Trend;
-        Assert.NotNull(trend);
-        Assert.Equal(15, trend!.RecentCount);
-        Assert.Equal(100 - 7 / 15.0 * 100, trend.Delta, 3);
-        Assert.Null(Kpis.SuccessRate(Window(19, _ => RunState.Success)).Trend);
+        await Assert.That(trend).IsNotNull();
+        await Assert.That(trend!.RecentCount).IsEqualTo(15);
+        await Assert.That(trend.Delta).IsEqualTo(100 - 7 / 15.0 * 100);
+        await Assert.That(Kpis.SuccessRate(Window(19, _ => RunState.Success)).Trend).IsNull();
     }
 
-    [Fact]
-    public void Success_rate_is_null_without_verdicts()
+    [Test]
+    public async Task Success_rate_is_null_without_verdicts()
     {
-        Assert.Null(Kpis.SuccessRate(Window(3, _ => RunState.InProgress)).Rate);
-        Assert.Null(Kpis.SuccessRate([]).Rate);
+        await Assert.That(Kpis.SuccessRate(Window(3, _ => RunState.InProgress)).Rate).IsNull();
+        await Assert.That(Kpis.SuccessRate([]).Rate).IsNull();
     }
 
-    [Fact]
-    public void Average_duration_ignores_cancelled_and_active_runs()
+    [Test]
+    public async Task Average_duration_ignores_cancelled_and_active_runs()
     {
         var runs = Window(4, i => i switch { 0 => RunState.Success, 1 => RunState.Failure, 2 => RunState.Cancelled, _ => RunState.InProgress },
             i => i == 2 ? TimeSpan.FromHours(5) : TimeSpan.FromMinutes(i == 0 ? 2 : 4));
         var k = Kpis.AverageDuration(runs);
-        Assert.Equal(TimeSpan.FromMinutes(3), k.Average);
-        Assert.Equal(2, k.Samples);
-        Assert.Null(k.Trend);
+        await Assert.That(k.Average).IsEqualTo(TimeSpan.FromMinutes(3));
+        await Assert.That(k.Samples).IsEqualTo(2);
+        await Assert.That(k.Trend).IsNull();
     }
 
-    [Fact]
-    public void Average_duration_trend_needs_two_full_periods()
+    [Test]
+    public async Task Average_duration_trend_needs_two_full_periods()
     {
         var runs = Window(30, _ => RunState.Success, i => TimeSpan.FromMinutes(i < 15 ? 10 : 5));
-        Assert.Equal(300, Kpis.AverageDuration(runs).Trend!.Delta, 3);   // newer runs are 5 minutes slower
-        Assert.Null(Kpis.AverageDuration(Window(12, _ => RunState.Success)).Trend);
+        await Assert.That(Kpis.AverageDuration(runs).Trend!.Delta).IsEqualTo(300);   // newer runs are 5 minutes slower
+        await Assert.That(Kpis.AverageDuration(Window(12, _ => RunState.Success)).Trend).IsNull();
     }
 }

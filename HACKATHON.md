@@ -17,5 +17,5 @@ See the status table in the README. Honest gaps: live GitHub path is tested only
 
 ## Built with
 
-.NET 10, Blazor Server, YamlDotNet, xUnit, bUnit. Designed and implemented with Claude Code (Sonnet 5.5 for implementation, one Opus 5.5 design consultation).
+.NET 10, Blazor Server, YamlDotNet, TUnit, bUnit. Designed and implemented with Claude Code (Sonnet 5.5 for implementation, one Opus 5.5 design consultation).
 

@@ -55,7 +55,9 @@ if (remoteReachable)
     Console.WriteLine("CIWorkbench: listening beyond loopback, so Live GitHub mode is disabled and only demo data is served.");
 }
 builder.Services.AddScoped<DemoCiProvider>(sp => new DemoCiProvider(sp.GetRequiredService<TimeProvider>()));
+builder.Services.AddSingleton(new LiveModePolicy(remoteReachable));
 builder.Services.AddScoped<AppSession>();
+builder.Services.AddScoped<OverviewData>();
 builder.Services.AddScoped<ICiProvider, SwitchableCiProvider>();
 
 var app = builder.Build();

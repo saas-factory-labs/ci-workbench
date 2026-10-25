@@ -1,3 +1,4 @@
+using System.IO;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Bunit;
@@ -7,6 +8,8 @@ using CIWorkbench.Core.Models;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Mvc.Testing;
+using TUnit.Assertions.Enums;
+using System.Threading.Tasks;
 
 namespace CIWorkbench.Web.Tests;
 
@@ -33,7 +36,7 @@ internal static class Css
     public static string Block(string css, string selector)
     {
         var i = css.IndexOf(selector + " {", StringComparison.Ordinal);
-        Assert.True(i >= 0, $"rule '{selector}' not found");
+        if (i < 0) throw new InvalidOperationException($"rule '{selector}' not found");
         var start = css.IndexOf('{', i) + 1;
         return css[start..css.IndexOf('}', start)];
     }
@@ -56,7 +59,7 @@ internal static class Contrast
         v = v.Trim();
         if (v.StartsWith('#')) { var h = v[1..]; return (Convert.ToInt32(h[..2], 16), Convert.ToInt32(h[2..4], 16), Convert.ToInt32(h[4..6], 16), 1); }
         var m = Regex.Match(v, @"rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+))?\s*\)");
-        Assert.True(m.Success, $"not a colour literal: {v}");
+        if (!m.Success) throw new InvalidOperationException($"not a colour literal: {v}");
         double P(int g) => double.Parse(m.Groups[g].Value, CultureInfo.InvariantCulture);
         return (P(1), P(2), P(3), m.Groups[4].Success ? P(4) : 1);
     }
@@ -75,62 +78,62 @@ internal static class Contrast
 
 public class DesignTokenTests
 {
-    [Fact]
-    public void Component_stylesheet_has_no_colour_literals_outside_the_two_palettes()
+    [Test]
+    public async Task Component_stylesheet_has_no_colour_literals_outside_the_two_palettes()
     {
         var literal = new Regex(@"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(|\b(?:white|black)\b(?!-)");
         foreach (var (name, css) in new[] { ("ciworkbench.css", Css.WithoutPalettes(Css.Components)), ("app.css", Css.Host), ("ReconnectModal.razor.css", Css.Reconnect) })
         {
             var hits = literal.Matches(Regex.Replace(css, @"/\*.*?\*/", "", RegexOptions.Singleline)).Select(m => m.Value).Distinct().ToList();
-            Assert.True(hits.Count == 0, $"{name} hardcodes colours instead of using --ciw-* tokens: {string.Join(", ", hits)}");
+            await Assert.That(hits.Count == 0).IsTrue().Because($"{name} hardcodes colours instead of using --ciw-* tokens: {string.Join(", ", hits)}");
         }
     }
 
-    [Fact]
-    public void Light_and_dark_palettes_define_exactly_the_same_tokens()
+    [Test]
+    public async Task Light_and_dark_palettes_define_exactly_the_same_tokens()
     {
         var dark = Css.Tokens(Css.Block(Css.Components, Css.DarkSelector));
         var light = Css.Tokens(Css.Block(Css.Components, Css.LightSelector));
         var onlyDark = dark.Keys.Except(light.Keys).ToList(); var onlyLight = light.Keys.Except(dark.Keys).ToList();
-        Assert.True(onlyDark.Count == 0, "missing from light: " + string.Join(", ", onlyDark));
-        Assert.True(onlyLight.Count == 0, "missing from dark: " + string.Join(", ", onlyLight));
-        Assert.True(dark.Count >= 50, "palette unexpectedly small");
+        await Assert.That(onlyDark.Count == 0).IsTrue();
+        await Assert.That(onlyLight.Count == 0).IsTrue();
+        await Assert.That(dark.Count >= 50).IsTrue().Because("palette unexpectedly small");
     }
 
-    [Fact]
-    public void Every_semantic_token_named_in_the_design_brief_exists()
+    [Test]
+    public async Task Every_semantic_token_named_in_the_design_brief_exists()
     {
         var all = Css.Tokens(Css.Block(Css.Components, Css.DarkSelector));
         foreach (var t in new[] { "bg", "surface", "surface-raised", "surface-hover", "surface-selected", "text-primary", "text-secondary", "text-muted", "border", "border-strong", "brand", "brand-hover", "brand-subtle", "focus-ring", "success", "danger", "warning", "info", "shadow-sm", "shadow-md" })
-            Assert.True(all.ContainsKey("--ciw-" + t), $"--ciw-{t} missing");
+            await Assert.That(all.ContainsKey("--ciw-" + t)).IsTrue().Because($"--ciw-{t} missing");
     }
 
-    [Fact]
-    public void Every_token_that_is_used_is_defined_somewhere()
+    [Test]
+    public async Task Every_token_that_is_used_is_defined_somewhere()
     {
         var css = Css.Components + Css.Host + Css.Reconnect;
         var defined = Regex.Matches(css, @"(--ciw-[\w-]+)\s*:").Select(m => m.Groups[1].Value).ToHashSet();
         var used = Regex.Matches(css, @"var\((--ciw-[\w-]+)\s*\)").Select(m => m.Groups[1].Value).Distinct();   // no fallback given
         var undefinedTokens = used.Where(u => !defined.Contains(u)).ToList();
-        Assert.True(undefinedTokens.Count == 0, "undefined tokens: " + string.Join(", ", undefinedTokens));
+        await Assert.That(undefinedTokens.Count == 0).IsTrue();
     }
 
-    [Fact]
-    public void Brand_palette_keeps_the_specified_anchors()
+    [Test]
+    public async Task Brand_palette_keeps_the_specified_anchors()
     {
         var dark = Css.Tokens(Css.Block(Css.Components, Css.DarkSelector));
-        Assert.Equal("#0e1218", dark["--ciw-bg"]); Assert.Equal("#171e28", dark["--ciw-surface"]); Assert.Equal("#202b39", dark["--ciw-surface-raised"]);
-        Assert.Equal("#4f8cff", dark["--ciw-brand"]); Assert.Equal("#78a9ff", dark["--ciw-brand-hover"]); Assert.Equal("#f1f5fb", dark["--ciw-text-primary"]);
+        await Assert.That(dark["--ciw-bg"]).IsEqualTo("#0e1218"); await Assert.That(dark["--ciw-surface"]).IsEqualTo("#171e28"); await Assert.That(dark["--ciw-surface-raised"]).IsEqualTo("#202b39");
+        await Assert.That(dark["--ciw-brand"]).IsEqualTo("#4f8cff"); await Assert.That(dark["--ciw-brand-hover"]).IsEqualTo("#78a9ff"); await Assert.That(dark["--ciw-text-primary"]).IsEqualTo("#f1f5fb");
         var light = Css.Tokens(Css.Block(Css.Components, Css.LightSelector));
-        Assert.Equal("#f7f9fc", light["--ciw-bg"]); Assert.Equal("#ffffff", light["--ciw-surface"]); Assert.Equal("#eef3f9", light["--ciw-surface-raised"]);
-        Assert.Equal("#205fcf", light["--ciw-brand"]); Assert.Equal("#162233", light["--ciw-text-primary"]); Assert.Equal("#526477", light["--ciw-text-secondary"]);
+        await Assert.That(light["--ciw-bg"]).IsEqualTo("#f7f9fc"); await Assert.That(light["--ciw-surface"]).IsEqualTo("#ffffff"); await Assert.That(light["--ciw-surface-raised"]).IsEqualTo("#eef3f9");
+        await Assert.That(light["--ciw-brand"]).IsEqualTo("#205fcf"); await Assert.That(light["--ciw-text-primary"]).IsEqualTo("#162233"); await Assert.That(light["--ciw-text-secondary"]).IsEqualTo("#526477");
     }
 
-    public static TheoryData<string> Themes => new() { Css.DarkSelector, Css.LightSelector };
+    public static IEnumerable<string> Themes() { yield return Css.DarkSelector; yield return Css.LightSelector; }
 
-    [Theory]
-    [MemberData(nameof(Themes))]
-    public void Text_and_status_colours_meet_WCAG_AA_on_the_surfaces_they_are_used_on(string theme)
+    [Test]
+    [MethodDataSource(nameof(Themes))]
+    public async Task Text_and_status_colours_meet_WCAG_AA_on_the_surfaces_they_are_used_on(string theme)
     {
         var t = Css.Tokens(Css.Block(Css.Components, theme));
         (double, double, double, double) C(string k) => Contrast.Parse(t[k]);
@@ -181,92 +184,92 @@ public class DesignTokenTests
         Check("code error text on error highlight", Solid("--ciw-code-err-fg"), errBg, 4.5);
         Check("code text on error highlight", Solid("--ciw-code-fg"), errBg, 4.5);
         Check("danger-text on code surface", Solid("--ciw-danger-text"), code, 4.5);
-        Assert.True(failures.Count == 0, $"{theme}\n" + string.Join("\n", failures));
+        await Assert.That(failures.Count == 0).IsTrue();
     }
 
-    [Fact]
-    public void Type_scale_never_goes_below_12px_and_headings_follow_the_brief()
+    [Test]
+    public async Task Type_scale_never_goes_below_12px_and_headings_follow_the_brief()
     {
         var css = Css.Components + Css.Host;
         foreach (Match m in Regex.Matches(css, @"font-size:\s*([\d.]+)px"))
-            Assert.True(double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) >= 12, $"font-size {m.Value}");
+            await Assert.That(double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) >= 12).IsTrue().Because($"font-size {m.Value}");
         var root = Css.Tokens(Css.Block(Css.Components, ".ciw-root"));
-        Assert.Equal("24px", root["--ciw-fs-title"]); Assert.Equal("16px", root["--ciw-fs-group"]); Assert.Equal("14px", root["--ciw-fs-name"]);
-        Assert.Equal("12px", root["--ciw-fs-label"]);
+        await Assert.That(root["--ciw-fs-title"]).IsEqualTo("24px"); await Assert.That(root["--ciw-fs-group"]).IsEqualTo("16px"); await Assert.That(root["--ciw-fs-name"]).IsEqualTo("14px");
+        await Assert.That(root["--ciw-fs-label"]).IsEqualTo("12px");
     }
 
-    [Fact]
-    public void Reduced_motion_is_honoured_and_transitions_stay_between_120_and_180_ms()
+    [Test]
+    public async Task Reduced_motion_is_honoured_and_transitions_stay_between_120_and_180_ms()
     {
-        Assert.Contains("prefers-reduced-motion: reduce", Css.Components);
-        Assert.Contains("prefers-reduced-motion: reduce", Css.Host);
-        Assert.Equal("140ms", Css.Tokens(Css.Block(Css.Components, ".ciw-root"))["--ciw-t"]);
+        await Assert.That(Css.Components).Contains("prefers-reduced-motion: reduce");
+        await Assert.That(Css.Host).Contains("prefers-reduced-motion: reduce");
+        await Assert.That(Css.Tokens(Css.Block(Css.Components, ".ciw-root"))["--ciw-t"]).IsEqualTo("140ms");
     }
 }
 
 public class ThemeBootstrapTests
 {
-    [Fact]
-    public void Theme_script_is_an_external_synchronous_script_placed_before_the_stylesheets()
+    [Test]
+    public async Task Theme_script_is_an_external_synchronous_script_placed_before_the_stylesheets()
     {
         var shell = Css.AppShell;
         var script = shell.IndexOf("ciw-theme.js", StringComparison.Ordinal);
         var sheet = shell.IndexOf("ciworkbench.css", StringComparison.Ordinal);
-        Assert.True(script > 0 && script < sheet, "ciw-theme.js must load in <head> before the stylesheets");
+        await Assert.That(script > 0 && script < sheet).IsTrue().Because("ciw-theme.js must load in <head> before the stylesheets");
         var tag = shell[shell.LastIndexOf("<script", script, StringComparison.Ordinal)..];
-        Assert.DoesNotContain("defer", tag[..tag.IndexOf('>')]); Assert.DoesNotContain("async", tag[..tag.IndexOf('>')]);
-        Assert.DoesNotMatch(@"<script(?![^>]*\bsrc=)[^>]*>", shell);   // no inline script: a strict CSP needs no nonce or hash
-        Assert.Contains("content=\"dark light\"", shell);
+        await Assert.That(tag[..tag.IndexOf('>')]).DoesNotContain("defer"); await Assert.That(tag[..tag.IndexOf('>')]).DoesNotContain("async");
+        await Assert.That(shell).DoesNotMatch(@"<script(?![^>]*\bsrc=)[^>]*>");   // no inline script: a strict CSP needs no nonce or hash
+        await Assert.That(shell).Contains("content=\"dark light\"");
     }
 
-    [Fact]
-    public void Theme_script_stores_only_a_non_sensitive_choice_and_defaults_to_system()
+    [Test]
+    public async Task Theme_script_stores_only_a_non_sensitive_choice_and_defaults_to_system()
     {
         var js = Css.ThemeScript;
-        Assert.Contains("'ciw:theme'", js);
-        Assert.Contains("return 'system'", js);
-        Assert.Contains("prefers-color-scheme: dark", js);
-        Assert.DoesNotContain("token", js, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("eval(", js);
+        await Assert.That(js).Contains("'ciw:theme'");
+        await Assert.That(js).Contains("return 'system'");
+        await Assert.That(js).Contains("prefers-color-scheme: dark");
+        await Assert.That(js).DoesNotContain("token", StringComparison.OrdinalIgnoreCase);
+        await Assert.That(js).DoesNotContain("eval(");
     }
 
-    [Fact]
-    public void ThemeState_defaults_to_System_and_round_trips_its_stored_keys()
+    [Test]
+    public async Task ThemeState_defaults_to_System_and_round_trips_its_stored_keys()
     {
         var s = new ThemeState();
-        Assert.Equal(ThemePreference.System, s.Preference);
-        foreach (var p in Enum.GetValues<ThemePreference>()) Assert.Equal(p, ThemeState.Parse(ThemeState.ToKey(p)));
-        Assert.Equal(ThemePreference.System, ThemeState.Parse(null));
-        Assert.Equal(ThemePreference.System, ThemeState.Parse("<script>"));
+        await Assert.That(s.Preference).IsEqualTo(ThemePreference.System);
+        foreach (var p in Enum.GetValues<ThemePreference>()) await Assert.That(ThemeState.Parse(ThemeState.ToKey(p))).IsEqualTo(p);
+        await Assert.That(ThemeState.Parse(null)).IsEqualTo(ThemePreference.System);
+        await Assert.That(ThemeState.Parse("<script>")).IsEqualTo(ThemePreference.System);
     }
 
-    [Fact]
-    public void ThemeState_resolves_explicit_choices_regardless_of_the_OS_and_System_to_the_OS()
+    [Test]
+    public async Task ThemeState_resolves_explicit_choices_regardless_of_the_OS_and_System_to_the_OS()
     {
         var s = new ThemeState();
         s.SetResolvedFromHost(false);
-        Assert.False(s.ResolvedDark);
+        await Assert.That(s.ResolvedDark).IsFalse();
         s.SetResolvedFromHost(true);
-        Assert.True(s.ResolvedDark);
-        s.Preference = ThemePreference.Light; Assert.False(s.ResolvedDark);
+        await Assert.That(s.ResolvedDark).IsTrue();
+        s.Preference = ThemePreference.Light; await Assert.That(s.ResolvedDark).IsFalse();
         s.SetResolvedFromHost(false);
-        s.Preference = ThemePreference.Dark; Assert.True(s.ResolvedDark);
+        s.Preference = ThemePreference.Dark; await Assert.That(s.ResolvedDark).IsTrue();
         var raised = 0; s.Changed += () => raised++;
-        s.Preference = ThemePreference.Dark; Assert.Equal(0, raised);   // no-op writes do not notify
-        s.Preference = ThemePreference.System; Assert.Equal(1, raised);
+        s.Preference = ThemePreference.Dark; await Assert.That(raised).IsEqualTo(0);   // no-op writes do not notify
+        s.Preference = ThemePreference.System; await Assert.That(raised).IsEqualTo(1);
     }
 
-    [Fact]
+    [Test]
     public async Task Served_shell_references_the_theme_script_before_any_stylesheet()
     {
         using var factory = new WebApplicationFactory<Program>();
         using var client = factory.CreateClient();
         var html = await client.GetStringAsync("/");
         var script = html.IndexOf("ciw-theme", StringComparison.Ordinal);
-        Assert.True(script > 0 && script < html.IndexOf("rel=\"stylesheet\"", StringComparison.Ordinal));
-        Assert.Contains("<html lang=\"en\"", html);
+        await Assert.That(script > 0 && script < html.IndexOf("rel=\"stylesheet\"", StringComparison.Ordinal)).IsTrue();
+        await Assert.That(html).Contains("<html lang=\"en\"");
         var ok = await client.GetAsync(Regex.Match(html, "src=\"(_content/CIWorkbench.Components/ciw-theme[^\"]*\\.js)\"").Groups[1].Value);
-        Assert.True(ok.IsSuccessStatusCode);
+        await Assert.That(ok.IsSuccessStatusCode).IsTrue();
     }
 }
 
@@ -278,59 +281,60 @@ public class ThemeComponentTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Loose;
     }
 
-    [Fact]
-    public void Toggle_offers_Light_Dark_System_with_System_selected_first()
+    [Test]
+    public async Task Toggle_offers_Light_Dark_System_with_System_selected_first()
     {
         var cut = Render<ThemeToggle>();
         var buttons = cut.FindAll("button");
-        Assert.Equal(["Light", "Dark", "System"], buttons.Select(b => b.TextContent.Trim()));
-        Assert.Equal("true", cut.Find("[data-theme-option=system]").GetAttribute("aria-pressed"));
-        Assert.Equal("false", cut.Find("[data-theme-option=dark]").GetAttribute("aria-pressed"));
+        await Assert.That(buttons.Select(b => b.TextContent.Trim())).IsEquivalentTo(["Light", "Dark", "System"], CollectionOrdering.Matching);
+        await Assert.That(cut.Find("[data-theme-option=system]").GetAttribute("aria-pressed")).IsEqualTo("true");
+        await Assert.That(cut.Find("[data-theme-option=dark]").GetAttribute("aria-pressed")).IsEqualTo("false");
     }
 
-    [Fact]
-    public void Toggle_and_menu_share_one_source_of_truth()
+    [Test]
+    public async Task Toggle_and_menu_share_one_source_of_truth()
     {
         var state = Services.GetRequiredService<ThemeState>();
         var toggle = Render<ThemeToggle>();
         var menu = Render<ThemeMenu>();
         toggle.Find("[data-theme-option=dark]").Click();
-        Assert.Equal(ThemePreference.Dark, state.Preference);
-        Assert.Contains("Theme: Dark", menu.Find("[data-testid=theme-menu-button]").GetAttribute("aria-label"));
+        await Assert.That(state.Preference).IsEqualTo(ThemePreference.Dark);
+        await Assert.That(menu.Find("[data-testid=theme-menu-button]").GetAttribute("aria-label")).Contains("Theme: Dark");
         menu.Find("[data-testid=theme-menu-button]").Click();
-        Assert.Equal("true", menu.Find("[data-theme-option=dark]").GetAttribute("aria-checked"));
+        await Assert.That(menu.Find("[data-theme-option=dark]").GetAttribute("aria-checked")).IsEqualTo("true");
         menu.Find("[data-theme-option=light]").Click();
-        Assert.Equal(ThemePreference.Light, state.Preference);
-        Assert.Equal("true", toggle.Find("[data-theme-option=light]").GetAttribute("aria-pressed"));
+        await Assert.That(state.Preference).IsEqualTo(ThemePreference.Light);
+        await Assert.That(toggle.Find("[data-theme-option=light]").GetAttribute("aria-pressed")).IsEqualTo("true");
     }
 
-    [Fact]
-    public void Menu_is_a_labelled_menu_of_radio_items_and_closes_on_choice_and_escape()
+    [Test]
+    public async Task Menu_is_a_labelled_menu_of_radio_items_and_closes_on_choice_and_escape()
     {
         var cut = Render<ThemeMenu>();
-        Assert.Empty(cut.FindAll("[role=menu]"));
+        await Assert.That(cut.FindAll("[role=menu]")).IsEmpty();
         var button = cut.Find("[data-testid=theme-menu-button]");
-        Assert.Equal("menu", button.GetAttribute("aria-haspopup"));
-        Assert.Equal("false", button.GetAttribute("aria-expanded"));
+        await Assert.That(button.GetAttribute("aria-haspopup")).IsEqualTo("menu");
+        await Assert.That(button.GetAttribute("aria-expanded")).IsEqualTo("false");
         button.Click();
-        Assert.Equal("true", cut.Find("[data-testid=theme-menu-button]").GetAttribute("aria-expanded"));
+        await Assert.That(cut.Find("[data-testid=theme-menu-button]").GetAttribute("aria-expanded")).IsEqualTo("true");
         var items = cut.FindAll("[role=menuitemradio]");
-        Assert.Equal(3, items.Count);
-        Assert.Single(items, i => i.GetAttribute("aria-checked") == "true");
+        await Assert.That(items.Count).IsEqualTo(3);
+        // TODO: xUnit Assert.Single(collection, expected) matched by value - verify conversion
+        await Assert.That(items.Where(i => i.GetAttribute("aria-checked") == "true")).HasSingleItem();
         cut.Find("[role=menu]").KeyDown(new Microsoft.AspNetCore.Components.Web.KeyboardEventArgs { Key = "Escape" });
-        Assert.Empty(cut.FindAll("[role=menu]"));
+        await Assert.That(cut.FindAll("[role=menu]")).IsEmpty();
         cut.Find("[data-testid=theme-menu-button]").Click();
         cut.Find("[data-theme-option=dark]").Click();
-        Assert.Empty(cut.FindAll("[role=menu]"));
+        await Assert.That(cut.FindAll("[role=menu]")).IsEmpty();
     }
 
-    [Fact]
-    public void Changing_theme_does_not_touch_other_UI_state()
+    [Test]
+    public async Task Changing_theme_does_not_touch_other_UI_state()
     {
         var prefs = Services.GetRequiredService<UiPreferences>();
         prefs.Density = Density.Compact; prefs.SetExpanded("group|x|y", true); prefs.StatusFilter = "Failed";
         Services.GetRequiredService<ThemeState>().Preference = ThemePreference.Dark;
-        Assert.Equal(Density.Compact, prefs.Density); Assert.True(prefs.IsExpanded("group|x|y")); Assert.Equal("Failed", prefs.StatusFilter);
+        await Assert.That(prefs.Density).IsEqualTo(Density.Compact); await Assert.That(prefs.IsExpanded("group|x|y")).IsTrue(); await Assert.That(prefs.StatusFilter).IsEqualTo("Failed");
     }
 }
 
@@ -345,66 +349,65 @@ public class WorkflowOutcomesTests : BunitContext
     private IRenderedComponent<WorkflowOutcomes> Draw(IReadOnlyList<WorkflowRunInfo> runs, bool truncated = false) =>
         Render<WorkflowOutcomes>(p => p.Add(c => c.Runs, runs).Add(c => c.Truncated, truncated).Add(c => c.Now, Now).Add(c => c.RunHref, r => $"/runs/{r.Id}"));
 
-    [Fact]
-    public void Ninety_four_failures_in_a_hundred_runs_say_so_in_words_with_the_window_named()
+    [Test]
+    public async Task Ninety_four_failures_in_a_hundred_runs_say_so_in_words_with_the_window_named()
     {
         var runs = Enumerable.Range(1, 100).Reverse().Select(n => Run(n, n <= 6 ? RunState.Success : RunState.Failure)).ToList();   // #100..#7 failed, #6..#1 passed
         var cut = Draw(runs);
-        Assert.Contains("newest 100 loaded runs, not lifetime", cut.Find("[data-testid=outcomes-window]").TextContent);
-        Assert.Equal("Of the 100 loaded runs: 6 succeeded, 94 failed.", cut.Find(".ciw-outcomes-bar").GetAttribute("aria-label"));
-        Assert.Contains("94 failures in a row", cut.Find("[data-testid=outcomes-streak]").TextContent);
-        Assert.Contains("#6", cut.Find("[data-testid=outcomes-lastok]").TextContent);
-        Assert.Equal(60, cut.FindAll(".ciw-tick").Count);   // the timeline is bounded; the table below holds every run
-        Assert.All(cut.FindAll(".ciw-tick"), t => Assert.False(string.IsNullOrWhiteSpace(t.GetAttribute("data-tip"))));
-        Assert.Equal("img", cut.Find(".ciw-timeline").GetAttribute("role"));
+        await Assert.That(cut.Find("[data-testid=outcomes-window]").TextContent).Contains("newest 100 loaded runs, not lifetime");
+        await Assert.That(cut.Find(".ciw-outcomes-bar").GetAttribute("aria-label")).IsEqualTo("Of the 100 loaded runs: 6 succeeded, 94 failed.");
+        await Assert.That(cut.Find("[data-testid=outcomes-streak]").TextContent).Contains("94 failures in a row");
+        await Assert.That(cut.Find("[data-testid=outcomes-lastok]").TextContent).Contains("#6");
+        await Assert.That(cut.FindAll(".ciw-tick").Count).IsEqualTo(60);   // the timeline is bounded; the table below holds every run
+        await Assert.That(cut.FindAll(".ciw-tick")).All(t => !(string.IsNullOrWhiteSpace(t.GetAttribute("data-tip"))));
+        await Assert.That(cut.Find(".ciw-timeline").GetAttribute("role")).IsEqualTo("img");
     }
 
-    [Fact]
-    public void Cancelled_skipped_running_and_queued_runs_are_counted_separately_and_never_as_failures()
+    [Test]
+    public async Task Cancelled_skipped_running_and_queued_runs_are_counted_separately_and_never_as_failures()
     {
         var runs = new[] { Run(9, RunState.Queued), Run(8, RunState.InProgress), Run(7, RunState.Cancelled), Run(6, RunState.Skipped), Run(5, RunState.Neutral), Run(4, RunState.Success), Run(3, RunState.Failure) };
         var cut = Draw(runs);
         var label = cut.Find(".ciw-outcomes-bar").GetAttribute("aria-label")!;
-        Assert.Contains("1 succeeded", label); Assert.Contains("1 failed", label); Assert.Contains("1 cancelled", label);
-        Assert.Contains("2 skipped or neutral", label); Assert.Contains("1 running", label); Assert.Contains("1 queued", label);
-        Assert.Contains("Newest finished run", cut.Find(".ciw-outcomes-facts").TextContent);   // a single success is not a "streak"
-        Assert.NotEmpty(cut.FindAll(".ciw-seg.cancel")); Assert.NotEmpty(cut.FindAll(".ciw-seg.skip")); Assert.NotEmpty(cut.FindAll(".ciw-seg.wait"));
+        await Assert.That(label).Contains("1 succeeded"); await Assert.That(label).Contains("1 failed"); await Assert.That(label).Contains("1 cancelled");
+        await Assert.That(label).Contains("2 skipped or neutral"); await Assert.That(label).Contains("1 running"); await Assert.That(label).Contains("1 queued");
+        await Assert.That(cut.Find(".ciw-outcomes-facts").TextContent).Contains("Newest finished run");   // a single success is not a "streak"
+        await Assert.That(cut.FindAll(".ciw-seg.cancel")).IsNotEmpty(); await Assert.That(cut.FindAll(".ciw-seg.skip")).IsNotEmpty(); await Assert.That(cut.FindAll(".ciw-seg.wait")).IsNotEmpty();
     }
 
-    [Fact]
-    public void A_truncated_history_is_marked_as_a_lower_bound()
+    [Test]
+    public async Task A_truncated_history_is_marked_as_a_lower_bound()
     {
         var runs = Enumerable.Range(1, 10).Reverse().Select(n => Run(n, RunState.Failure)).ToList();
         var cut = Draw(runs, truncated: true);
-        Assert.Contains("newest 10+ loaded runs", cut.Find("[data-testid=outcomes-window]").TextContent);
-        Assert.Contains("At least 10 failures in a row", cut.Find("[data-testid=outcomes-streak]").TextContent);
-        Assert.Contains("none in the loaded runs", cut.Find("[data-testid=outcomes-lastok]").TextContent);
+        await Assert.That(cut.Find("[data-testid=outcomes-window]").TextContent).Contains("newest 10+ loaded runs");
+        await Assert.That(cut.Find("[data-testid=outcomes-streak]").TextContent).Contains("At least 10 failures in a row");
+        await Assert.That(cut.Find("[data-testid=outcomes-lastok]").TextContent).Contains("none in the loaded runs");
     }
 
-    [Fact]
-    public void No_runs_renders_nothing_rather_than_an_empty_chart() => Assert.Empty(Draw([]).FindAll("section"));
+    [Test]
+    public async Task No_runs_renders_nothing_rather_than_an_empty_chart() => await Assert.That(Draw([]).FindAll("section")).IsEmpty();
 }
 
 public class RunIndicatorTests : BunitContext
 {
-    [Fact]
+    [Test]
     public async Task Preview_run_indicators_are_named_links_to_the_run_with_a_tooltip()
     {
         var clock = new FixedClock(new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero));
         Services.AddSingleton<TimeProvider>(clock); Services.AddCIWorkbenchComponents(); Services.AddSingleton<ICiProvider>(new DemoCiProvider(clock));
         JSInterop.Mode = JSRuntimeMode.Loose;
         var cut = Render<RepositoryWorkspace>(p => { p.Add(c => c.Repo, DemoCiProvider.Monorepo); p.Add(c => c.AutoRefresh, false); });
-        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll(".ciw-wf-toggle")), TimeSpan.FromSeconds(10));
+        await Assert.That(cut.FindAll(".ciw-wf-toggle")).IsNotEmpty();
         cut.FindAll(".ciw-wf-toggle")[0].Click();
-        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-testid=quick-preview] a.ciw-sdot")), TimeSpan.FromSeconds(10));
-        await Task.CompletedTask;
+        await Assert.That(cut.FindAll("[data-testid=quick-preview] a.ciw-sdot")).IsNotEmpty();
         var dots = cut.FindAll("[data-testid=quick-preview] a.ciw-sdot");
-        Assert.All(dots, d =>
+        foreach (var d in dots)
         {
-            Assert.Matches(@"/runs/\d+", d.GetAttribute("href"));
-            Assert.Matches(@"^Run #\d+, (Success|Failed|Cancelled|Skipped|Running|Queued|Neutral), ", d.GetAttribute("aria-label"));
-            Assert.Contains("#", d.GetAttribute("data-tip"));
-        });
-        Assert.Equal("group", cut.Find("[data-testid=quick-preview] .ciw-strip").GetAttribute("role"));
+            await Assert.That(d.GetAttribute("href")).Matches(@"/runs/\d+");
+            await Assert.That(d.GetAttribute("aria-label")).Matches(@"^Run #\d+, (Success|Failed|Cancelled|Skipped|Running|Queued|Neutral), ");
+            await Assert.That(d.GetAttribute("data-tip")).Contains("#");
+        }
+        await Assert.That(cut.Find("[data-testid=quick-preview] .ciw-strip").GetAttribute("role")).IsEqualTo("group");
     }
 }

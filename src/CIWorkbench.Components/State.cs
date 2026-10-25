@@ -87,12 +87,26 @@ public sealed class InspectorState
 /// <summary>Lets a host's topbar trigger a refresh and read back "last updated" without knowing the workspace.</summary>
 public sealed class WorkspaceSignals
 {
-    public event Action? RefreshRequested;
+    private Action? _refresh;
+
+    /// <summary>
+    /// Pages that can refresh themselves subscribe here. Subscribing or unsubscribing raises <see cref="Changed"/>, so the host's Refresh button
+    /// enables and disables itself as pages come and go instead of depending on unrelated state such as the selected repository.
+    /// </summary>
+    public event Action? RefreshRequested
+    {
+        add { _refresh += value; Changed?.Invoke(); }
+        remove { _refresh -= value; Changed?.Invoke(); }
+    }
     public event Action? Changed;
     public DateTimeOffset? LastUpdated { get; private set; }
     public bool IsLoading { get; private set; }
     public string? SearchText { get; private set; }
-    public void RequestRefresh() => RefreshRequested?.Invoke();
+    /// <summary>True while at least one mounted page handles refresh requests.</summary>
+    public bool CanRefresh => _refresh is not null;
+    public void RequestRefresh() => _refresh?.Invoke();
+    /// <summary>Forgets what belonged to the previous data source (last update time, loading flag, search text).</summary>
+    public void Reset() { LastUpdated = null; IsLoading = false; SearchText = null; Changed?.Invoke(); }
     public void ReportLoading(bool loading) { IsLoading = loading; Changed?.Invoke(); }
     public void ReportUpdated(DateTimeOffset at) { LastUpdated = at; IsLoading = false; Changed?.Invoke(); }
     public void SetSearch(string? text) { SearchText = text; Changed?.Invoke(); }

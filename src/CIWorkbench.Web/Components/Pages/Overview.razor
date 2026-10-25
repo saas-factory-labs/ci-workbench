@@ -1,43 +1,414 @@
 @page "/overview"
+@using CIWorkbench.Core.Health
+@using CIWorkbench.Core.Overview
 @implements IDisposable
 @inject AppSession Session
+@inject OverviewData Data
+@inject WorkspaceSignals Signals
+@inject CiwRoutes Routes
 @inject TimeProvider Time
 
 <PageTitle>Overview · CIWorkbench</PageTitle>
 <h1 class="page-title">Overview</h1>
 
 <div class="statusline" role="status">
-    <span class="pill @(Session.Mode == DataMode.Demo ? "demo" : "ok")">@(Session.Mode == DataMode.Demo ? "Demo data" : "Live GitHub")</span>
+    <span class="pill @(Session.Mode == DataMode.Demo ? "demo" : "ok")" data-testid="source-pill">@(Session.Mode == DataMode.Demo ? "Demo data" : "Live GitHub")</span>
     <DiscoveryInline />
-    <a href="settings" class="ciw-muted">Connection and permissions are in Settings →</a>
+    @if (Session.Mode == DataMode.Demo)
+    {
+        @if (Session.LiveAvailable) { <button type="button" class="ciw-btn sm" @onclick="() => Session.SetMode(DataMode.Live)" data-action="use-live">Switch to live GitHub</button> }
+        else { <button type="button" class="ciw-btn sm" @onclick="() => Session.SetMode(DataMode.Live)" data-action="connect">Connect GitHub</button> }
+    }
+    else { <a href="settings" class="ciw-muted">Connection and permissions are in Settings →</a> }
+    @if (Owners.Count > 1)
+    {
+        <label class="ov-scope">Scope
+            <select aria-label="Repository scope" @onchange="e => Session.SetOrg(e.Value?.ToString())" data-testid="scope-select">
+                <option value="" selected="@(Session.OrgFilter is null)">All repositories</option>
+                @foreach (var o in Owners) { <option value="@o" selected="@(o == Session.OrgFilter)">@o only</option> }
+            </select>
+        </label>
+    }
 </div>
 
-<h2 class="section-title">Recently active repositories</h2>
-@if (Session.Repositories.Count == 0)
+@if (Session.LiveSetupRequested && !Session.LiveAvailable)
 {
-    <div class="ciw-empty">@(Session.Discovery == DiscoveryState.Running ? "Discovering repositories…" : "No repositories found.")</div>
+    <div class="ov-onboard"><LiveOnboarding Compact="true" /></div>
+}
+
+@if (Scoped.Count == 0)
+{
+    <div class="ciw-empty" data-testid="ov-empty">@EmptyText</div>
 }
 else
 {
-    <div class="repo-cards" data-testid="repo-cards">
-        @foreach (var r in Session.Repositories.Take(8))
-        {
-            <a class="repo-card" href="repo/@r.Ref.Owner/@r.Ref.Name">
-                <span class="repo-card-icon"><Icon Name="repo" Size="22" /></span>
-                <span class="repo-card-body">
-                    <strong>@r.Ref.Name</strong>
-                    <small class="ciw-muted">@r.Ref.Owner · pushed @Fmt.Ago(r.PushedAt, Time.GetUtcNow())</small>
-                    <small class="ciw-muted clamp">@r.Description</small>
-                </span>
-                <Icon Name="chevron-right" Size="18" Class="ciw-muted" />
-            </a>
-        }
+    <div class="ov-cards" data-testid="ov-cards" role="group" aria-label="Triage summary">
+        @Card("repos", "Repositories needing attention", Summary.RepositoriesNeedingAttention, $"of {Summary.Checked} checked", TriageFilter.NeedsAttention, Summary.RepositoriesNeedingAttention > 0 ? "bad" : "")
+        @Card("failing", "Failing workflows", Summary.FailingWorkflows, "failing now", TriageFilter.FailingNow, Summary.FailingWorkflows > 0 ? "bad" : "")
+        @Card("recurring", "Recurring failures", Summary.RecurringWorkflows, "failed 2+ times in a row", TriageFilter.Recurring, Summary.RecurringWorkflows > 0 ? "bad" : "")
+        @Card("running", "Running", Summary.RunningWorkflows, "queued or in progress", TriageFilter.Running, "")
+        @Card("unknown", "Not checked or unknown", Summary.UnverifiedRepositories, $"{Summary.NotChecked} not checked · {Summary.UnverifiedAfterScan} without runs", TriageFilter.Unknown, "")
     </div>
-    <p><a href="repositories">Browse all @Session.Repositories.Count repositories →</a></p>
+
+    <div class="ov-scan" data-testid="ov-scan">
+        <span>
+            @if (Data.Busy) { <progress aria-label="Checking repositories"></progress> }
+            <strong>@Summary.Checked</strong> of <strong>@Summary.TotalRepositories</strong> repositories checked@(Data.FailedCount > 0 ? $" · {Data.FailedCount} could not be loaded" : "")
+        </span>
+        @if (Summary.NotChecked > 0 && Data.Remaining > 0 && !Data.Busy)
+        {
+            <button type="button" class="ciw-btn sm" @onclick="Data.LoadMore" data-action="load-more">Check @Math.Min(OverviewData.BatchSize, Data.Remaining) more</button>
+        }
+        <span class="ciw-muted ov-scan-note">Unchecked repositories are never counted as healthy.</span>
+    </div>
+
+    <div class="ov-toolbar">
+        <div class="ciw-chips" role="group" aria-label="Triage filter">
+            @foreach (var f in Filters)
+            {
+                <button type="button" class="ciw-fchip @(_filter == f ? "on" : "")" aria-pressed="@(_filter == f ? "true" : "false")" @onclick="() => SetFilter(f)" data-filter="@f" title="@FilterHint(f)">
+                    @FilterLabel(f) <span class="n">@PortfolioTriage.Count(Analyzed, f)</span>
+                </button>
+            }
+        </div>
+        <div class="ov-selects">
+            <label class="ov-select">Branch
+                <select aria-label="Branch" @onchange="e => { _branch = NullIfEmpty(e.Value); }" data-testid="branch-select">
+                    <option value="" selected="@(_branch is null)">All branches</option>
+                    @foreach (var b in Branches) { <option value="@b" selected="@(b == _branch)">@b</option> }
+                </select>
+            </label>
+            <label class="ov-select">Trigger
+                <select aria-label="Trigger event" @onchange="e => { _event = NullIfEmpty(e.Value); }" data-testid="event-select">
+                    <option value="" selected="@(_event is null)">All triggers</option>
+                    @foreach (var ev in Events) { <option value="@ev" selected="@(ev == _event)">@ev</option> }
+                </select>
+            </label>
+        </div>
+    </div>
+
+    <section class="ov-section" aria-label="Needs attention" data-testid="needs-attention">
+        <h2 class="section-title">@SectionTitle <span class="ciw-muted ov-count">@Rows.Count</span></h2>
+        @if (Rows.Count == 0)
+        {
+            <div class="ciw-empty" data-testid="ov-none">@NoRowsText</div>
+        }
+        else
+        {
+            <div class="ov-list" role="list">
+                <div class="ov-row ov-head" aria-hidden="true">
+                    <span>Workflow</span><span>Latest failure</span><span>Status</span><span>Last activity</span><span>Failures</span>
+                </div>
+                @foreach (var w in Rows.Take(_rowLimit))
+                {
+                    var key = KeyOf(w); var open = _open.Contains(key);
+                    <div class="ov-item @(open ? "open" : "")" role="listitem" data-row="@key" data-health="@w.Health.Kind.ToString().ToLowerInvariant()">
+                        <div class="ov-row">
+                            <button type="button" class="ov-toggle" @onclick="() => ToggleAsync(w)" aria-expanded="@(open ? "true" : "false")" aria-controls="@DetailId(w)" title="@(open ? "Hide details" : "Show details")">
+                                <Icon Name="@(open ? "chevron-down" : "chevron-right")" Size="16" Class="ciw-chev" />
+                                <span class="ov-name"><strong>@w.Workflow.Name</strong><small class="ciw-muted">@w.Repo.FullName</small></span>
+                            </button>
+                            <span class="ov-summary" data-label="Latest failure">
+                                <span class="clamp">@SummaryOf(w)</span>
+                                @if (BranchOf(w) is { } br) { <small class="ciw-muted ov-meta"><Icon Name="branch" Size="12" /> @br@(EventOf(w) is { } ev ? $" · {ev}" : "")</small> }
+                            </span>
+                            <span class="ov-status" data-label="Status">
+                                <StatusBadge State="StateOf(w)" />
+                                @if (w.IsRecurring) { <em class="ov-tag bad" title="Failed @w.FailureStreak times in a row">recurring</em> }
+                                @if (w.IsStaleFailure) { <em class="ov-tag" title="Older than @((int)WorkflowHealthAnalyzer.StaleAfter.TotalDays) days">stale</em> }
+                                @if (w.IsRunning) { <em class="ov-tag run">running</em> }
+                            </span>
+                            <span class="ov-when" data-label="Last activity" title="@LastWhenTitle(w)">@Fmt.Ago(LastWhen(w), Time.GetUtcNow())</span>
+                            <span class="ov-count-cell" data-label="Failures">@FailureText(w)</span>
+                        </div>
+                        @if (open)
+                        {
+                            <div class="ov-detail" id="@DetailId(w)" data-testid="ov-detail">
+                                <div class="ov-detail-main">
+                                    @if (w.LastFailure is { } lf)
+                                    {
+                                        <p class="ov-step"><span class="ciw-muted">Failing step</span> @StepText(lf)</p>
+                                    }
+                                    <h3 class="ov-sub">Recent failures</h3>
+                                    @if (w.RecentFailures() is { Count: > 0 } fails)
+                                    {
+                                        <ol class="ov-timeline">
+                                            @foreach (var r in fails)
+                                            {
+                                                <li>
+                                                    <a href="@Routes.Run(w.Repo, r.Id)">#@r.RunNumber</a>
+                                                    <span class="ciw-muted">@Fmt.Ago(r.SortTime, Time.GetUtcNow()) · @r.Branch · @r.Event</span>
+                                                    @if (PortfolioTriage.Headline(r.CommitMessage) is { Length: > 0 } h) { <span class="clamp">@h</span> }
+                                                </li>
+                                            }
+                                        </ol>
+                                    }
+                                    else { <p class="ciw-muted">No failed run in the loaded window.</p> }
+                                </div>
+                                <nav class="ov-links" aria-label="Open @w.Workflow.Name">
+                                    <a class="ciw-btn sm" href="@Routes.Repository(w.Repo)" data-link="repository">Open repository</a>
+                                    <a class="ciw-btn sm" href="@Routes.Workflow(w.Repo, w.Workflow.Id)" data-link="runs">View all runs</a>
+                                    <a class="ciw-btn sm" href="@Routes.Workflow(w.Repo, w.Workflow.Id, "failures")" data-link="series">View failure series</a>
+                                    @if (w.LastFailure is { } last) { <a class="ciw-btn sm" href="@Routes.Run(w.Repo, last.Id)" data-link="run">Latest failed run</a> }
+                                </nav>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+            @if (Rows.Count > _rowLimit)
+            {
+                <p><button type="button" class="ciw-btn sm" @onclick="() => _rowLimit += 25" data-action="show-more-rows">Show @Math.Min(25, Rows.Count - _rowLimit) more of @(Rows.Count - _rowLimit)</button></p>
+            }
+        }
+    </section>
+
+    <div class="ov-split">
+        <section class="ov-section" aria-label="Repository health" data-testid="repo-health">
+            <h2 class="section-title">Repository health</h2>
+            <div class="ov-list" role="list">
+                @foreach (var r in HealthRows.Take(_repoLimit))
+                {
+                    var (cls, label) = Badge(r);
+                    <a class="ov-repo-row" role="listitem" href="@Routes.Repository(r.Repo.Ref)" data-repo="@r.Repo.Ref.FullName" data-status="@label.ToLowerInvariant().Replace(' ', '-')">
+                        <span class="ov-name"><strong>@r.Repo.Ref.Name</strong><small class="ciw-muted">@r.Repo.Ref.Owner@(r.T is null ? "" : $" · {r.T.WorkflowCount} {(r.T.WorkflowCount == 1 ? "workflow" : "workflows")}")</small></span>
+                        <span class="ciw-badge @cls" title="@(r.Scan?.Error)"><i class="ciw-badge-dot" aria-hidden="true"></i>@label</span>
+                        <span class="ov-rate">@(r.T is null ? "" : Fmt.Percent(r.T.SuccessRate))</span>
+                        <span class="ciw-muted ov-when">@(r.T is null ? "—" : Fmt.Ago(r.T.LastRunAt, Time.GetUtcNow()))</span>
+                    </a>
+                }
+            </div>
+            @if (HealthRows.Count > _repoLimit)
+            {
+                <p><button type="button" class="ciw-btn sm" @onclick="() => _repoLimit += 10" data-action="show-more-repos">Show more repositories</button> <a href="repositories">Browse all @Session.Repositories.Count →</a></p>
+            }
+        </section>
+
+        <section class="ov-section" aria-label="Recent activity" data-testid="recent-activity">
+            <h2 class="section-title">Recent activity</h2>
+            @if (Activity.Count == 0) { <div class="ciw-empty slim">No runs loaded yet.</div> }
+            else
+            {
+                <div class="ov-list" role="list">
+                    @foreach (var (repo, run) in Activity)
+                    {
+                        <a class="ov-act" role="listitem" href="@Routes.Run(repo, run.Id)" data-run="@run.Id">
+                            <StatusBadge State="run.State" />
+                            <span class="ov-name"><strong>@run.Name</strong><small class="ciw-muted">@repo.FullName · @run.Branch</small></span>
+                            <span class="ciw-muted ov-when">@Fmt.Ago(run.SortTime, Time.GetUtcNow())</span>
+                        </a>
+                    }
+                </div>
+            }
+        </section>
+    </div>
 }
 
 @code {
-    private void OnChanged() => InvokeAsync(StateHasChanged);
-    protected override void OnInitialized() => Session.Changed += OnChanged;
-    public void Dispose() => Session.Changed -= OnChanged;
+    private static readonly TriageFilter[] Filters = [TriageFilter.NeedsAttention, TriageFilter.FailingNow, TriageFilter.Recurring, TriageFilter.Recovered, TriageFilter.Running, TriageFilter.Unknown];
+
+    private TriageFilter _filter = TriageFilter.NeedsAttention;
+    private string? _branch, _event;
+    private int _rowLimit = 25, _repoLimit = 10;
+    private readonly HashSet<string> _open = [];
+    private bool _wasBusy;
+
+    // View models are rebuilt only when the loaded data, the scope or a filter changes.
+    private (int Version, string? Branch, string? Event, string? Org, TriageFilter Filter) _key = (-1, null, null, null, TriageFilter.NeedsAttention);
+    private List<RepoTriage> _analyzed = [];
+    private List<RepoSnapshot> _snapshots = [];
+    private IReadOnlyList<RepositoryInfo> _scoped = [];
+    private PortfolioSummary _summary = new(0, 0, 0, 0, 0, 0, 0, 0, 0);
+    private IReadOnlyList<WorkflowTriage> _rows = [];
+    private IReadOnlyList<string> _branches = [], _events = [];
+    private IReadOnlyList<(RepoRef Repo, WorkflowRunInfo Run)> _activity = [];
+    private List<HealthRow> _healthRows = [];
+
+    private IReadOnlyList<RepositoryInfo> Scoped { get { Refresh(); return _scoped; } }
+    private IReadOnlyList<string> Owners => Session.Repositories.Select(r => r.Ref.Owner).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToList();
+
+    private void Refresh()
+    {
+        var key = (Data.Version, _branch, _event, Session.OrgFilter, _filter);
+        if (key == _key) return;
+        _key = key;
+        _scoped = Data.ScopedRepositories();
+        _snapshots = Data.Snapshots().ToList();
+        var now = Time.GetUtcNow();
+        var scope = new TriageScope(_branch, _event);
+        _analyzed = _snapshots.Select(s => PortfolioTriage.Analyze(s, now, scope)).ToList();
+        _summary = PortfolioTriage.Summarize(_analyzed, _scoped.Count, _scoped.Count(r => Data.ScanOf(r.Ref)?.Snapshot is null));
+        _rows = PortfolioTriage.Rank(_analyzed, _filter);
+        _branches = PortfolioTriage.Branches(_snapshots);
+        _events = PortfolioTriage.Events(_snapshots);
+        _activity = PortfolioTriage.RecentActivity(_snapshots, 10);
+        var byRepo = _analyzed.ToDictionary(t => t.Repo.Ref);
+        _healthRows = _scoped.Select(r => new HealthRow(r, byRepo.GetValueOrDefault(r.Ref), Data.ScanOf(r.Ref)))
+            .OrderBy(r => r.T is null ? 2 : r.T.Status == RepoStatus.Failing ? 0 : 1)
+            .ThenByDescending(r => r.T?.Failing ?? 0)
+            .ThenByDescending(r => r.Repo.PushedAt ?? DateTimeOffset.MinValue).ToList();
+    }
+
+    private IReadOnlyList<RepoTriage> Analyzed { get { Refresh(); return _analyzed; } }
+    private IReadOnlyList<RepoSnapshot> Snapshots { get { Refresh(); return _snapshots; } }
+
+    private PortfolioSummary Summary { get { Refresh(); return _summary; } }
+    private IReadOnlyList<WorkflowTriage> Rows { get { Refresh(); return _rows; } }
+    private IReadOnlyList<string> Branches { get { Refresh(); return _branches; } }
+    private IReadOnlyList<string> Events { get { Refresh(); return _events; } }
+    private IReadOnlyList<(RepoRef Repo, WorkflowRunInfo Run)> Activity { get { Refresh(); return _activity; } }
+    private List<HealthRow> HealthRows { get { Refresh(); return _healthRows; } }
+
+    private string EmptyText => Session.Discovery switch
+    {
+        DiscoveryState.Running => "Discovering repositories…",
+        DiscoveryState.Failed => "Repositories could not be discovered. Use Retry above.",
+        _ => Session.OrgFilter is null ? "No repositories found." : $"No repositories found for {Session.OrgFilter}.",
+    };
+
+    private string SectionTitle => _filter switch
+    {
+        TriageFilter.NeedsAttention => "Needs attention",
+        _ => FilterLabel(_filter),
+    };
+
+    private string NoRowsText
+    {
+        get
+        {
+            if (Summary.Checked == 0) return Data.Busy ? "Checking recent runs…" : "No repository has been checked yet.";
+            var scope = Summary.NotChecked > 0 ? $"in the {Summary.Checked} repositories checked so far" : "across all repositories";
+            return _filter switch
+            {
+                TriageFilter.NeedsAttention or TriageFilter.FailingNow => $"No failing workflows {scope}.",
+                TriageFilter.Recurring => $"No repeated failures {scope}.",
+                TriageFilter.Recovered => $"No recently recovered workflows {scope}.",
+                TriageFilter.Running => $"Nothing is running {scope}.",
+                _ => $"No workflows without a result {scope}.",
+            };
+        }
+    }
+
+    private RenderFragment Card(string key, string label, int value, string sub, TriageFilter filter, string tone) => @<button type="button" class="ov-card @tone @(_filter == filter ? "on" : "")" data-card="@key" aria-pressed="@(_filter == filter ? "true" : "false")" @onclick="() => SetFilter(filter)">
+        <span class="ov-card-label">@label</span>
+        <span class="ov-card-value">@value</span>
+        <span class="ov-card-sub">@sub</span>
+    </button>;
+
+    private static string FilterLabel(TriageFilter f) => f switch
+    {
+        TriageFilter.NeedsAttention => "Needs attention",
+        TriageFilter.FailingNow => "Failing now",
+        TriageFilter.Recurring => "Recurring",
+        TriageFilter.Recovered => "Recovered",
+        TriageFilter.Running => "Running",
+        _ => "Unknown",
+    };
+
+    private static string FilterHint(TriageFilter f) => f switch
+    {
+        TriageFilter.NeedsAttention => "Newest finished run on the default branch failed (recent failures first, then stale ones)",
+        TriageFilter.FailingNow => "Failing and not older than 14 days",
+        TriageFilter.Recurring => "Failed at least twice in a row without a success in between",
+        TriageFilter.Recovered => "Succeeded again after a recent failure",
+        TriageFilter.Running => "A run is queued or in progress",
+        _ => "No success or failure in the loaded runs, so nothing can be claimed",
+    };
+
+    private void SetFilter(TriageFilter f) { _filter = f; _rowLimit = 25; }
+    private static string? NullIfEmpty(object? v) => string.IsNullOrEmpty(v?.ToString()) ? null : v!.ToString();
+
+    // ---- row helpers ----
+    private static string KeyOf(WorkflowTriage w) => $"{w.Repo.FullName}|{w.Workflow.Id}";
+    private static string DetailId(WorkflowTriage w) => "ov-detail-" + (uint)KeyOf(w).GetHashCode(StringComparison.Ordinal);
+
+    private WorkflowRunInfo? ShownRun(WorkflowTriage w) => w.LastFailure ?? w.Health.Verdict ?? w.Runs.FirstOrDefault();
+    private static RunState? StateOf(WorkflowTriage w) => w.Health.Kind == HealthKind.FailingNow ? RunState.Failure : (w.Health.Verdict?.State ?? w.Runs.FirstOrDefault()?.State);
+    private string? BranchOf(WorkflowTriage w) => ShownRun(w)?.Branch;
+    private string? EventOf(WorkflowTriage w) => ShownRun(w)?.Event;
+    private DateTimeOffset? LastWhen(WorkflowTriage w) => ShownRun(w)?.SortTime;
+    private string LastWhenTitle(WorkflowTriage w) => w.LastFailure is not null ? "Last failed run" : "Latest run";
+
+    private string SummaryOf(WorkflowTriage w)
+    {
+        if (ShownRun(w) is not { } run) return "No runs in the loaded window";
+        if (w.LastFailure is not null && Data.HintFor(run) is { Length: > 0 } hint) return hint;
+        var headline = PortfolioTriage.Headline(run.CommitMessage);
+        return headline.Length > 0 ? headline : run.Name;
+    }
+
+    private string StepText(WorkflowRunInfo run) => Data.HintFor(run) switch
+    {
+        null => "Loading…",
+        "" => "Not available (open the run for details)",
+        var h => h,
+    };
+
+    private static string FailureText(WorkflowTriage w) => w.FailureStreak switch
+    {
+        >= 2 => $"{w.FailureStreak} in a row",
+        1 => "1 failure",
+        _ => w.RecentFailures().Count is var n and > 0 ? $"{n} in window" : "—",
+    };
+
+    private async Task ToggleAsync(WorkflowTriage w)
+    {
+        var key = KeyOf(w);
+        if (!_open.Remove(key))
+        {
+            _open.Add(key);
+            if (w.LastFailure is { } lf) await Data.LoadHintAsync(w.Repo, lf);    // one jobs request, no logs
+        }
+    }
+
+    // ---- repository health ----
+    private sealed record HealthRow(RepositoryInfo Repo, RepoTriage? T, RepoScan? Scan);
+
+    private static (string Cls, string Label) Badge(HealthRow r) => r.T switch
+    {
+        null when r.Scan?.State == ScanState.Failed => ("ciw-wait", "Couldn't load"),
+        null when r.Scan?.State == ScanState.Loading => ("ciw-active", "Checking"),
+        null => ("ciw-none", "Not checked"),
+        { Status: RepoStatus.Failing } t => ("ciw-fail", $"{t.Failing} failing"),
+        { Status: RepoStatus.Running } => ("ciw-active", "Running"),
+        { Status: RepoStatus.Recovered } => ("ciw-ok", "Recovered"),
+        { Status: RepoStatus.Healthy } => ("ciw-ok", "Healthy"),
+        _ => ("ciw-none", "No runs"),
+    };
+
+    // ---- lifecycle ----
+    private void OnSession() => InvokeAsync(StateHasChanged);
+
+    private void OnData() => InvokeAsync(() => { SyncSignals(); StateHasChanged(); });
+
+    /// <summary>Feeds the top bar's "Refreshing… / Updated …" text from the scan, so it reflects this page and not a stale one.</summary>
+    private void SyncSignals()
+    {
+        var busy = Data.Busy;
+        if (busy == _wasBusy) return;
+        _wasBusy = busy;
+        if (busy) Signals.ReportLoading(true);
+        else if (Data.Snapshots().Count > 0) Signals.ReportUpdated(Time.GetUtcNow());
+        else Signals.ReportLoading(false);
+    }
+
+    private void OnRefresh() => InvokeAsync(() => { Data.Refresh(); SyncSignals(); });
+
+    protected override void OnInitialized()
+    {
+        Session.Changed += OnSession;
+        Data.Changed += OnData;
+        Signals.RefreshRequested += OnRefresh;          // enables the top bar's Refresh button for this page
+        Data.Attach();
+        SyncSignals();
+    }
+
+    public void Dispose()
+    {
+        Session.Changed -= OnSession;
+        Data.Changed -= OnData;
+        Signals.RefreshRequested -= OnRefresh;
+        Data.Detach();
+        if (_wasBusy) Signals.ReportLoading(false);
+    }
 }

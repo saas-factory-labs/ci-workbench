@@ -9,6 +9,9 @@ public enum DataMode { Demo, Live }
 
 public enum DiscoveryState { Idle, Running, Completed, Cancelled, Failed }
 
+/// <summary>Why live mode can never work on this host, regardless of the token (set once at startup).</summary>
+public sealed record LiveModePolicy(bool BlockedByNetworkExposure);
+
 /// <summary>
 /// Per-circuit state of the standalone host: data mode, progressive repository discovery, selected repository.
 /// The GitHub token lives only in server-side options; nothing here is sent to the browser.
@@ -21,6 +24,7 @@ public sealed class AppSession : IDisposable
     private readonly List<RepositoryInfo> _repos = [];
     private readonly List<RepoRef> _recent = [];
     private CancellationTokenSource? _cts;
+    private int _generation;
 
     public AppSession(IOptions<GitHubOptions> github, DemoCiProvider demo, GitHubCiProvider live, RateLimitTracker tracker, IConfiguration config)
     {
@@ -47,22 +51,49 @@ public sealed class AppSession : IDisposable
     public bool CheckingConnection { get; private set; }
     public RateLimitInfo? RateLimit { get; private set; }
 
-    public void SetMode(DataMode mode)
+    /// <summary>Bumped whenever the data source flips. Pages that hold loaded data compare it and reload, so nothing keeps showing the previous source.</summary>
+    public int SourceVersion { get; private set; }
+
+    /// <summary>Organisation or account the user narrowed the app to (top bar and Overview share it); null means every account.</summary>
+    public string? OrgFilter { get; private set; }
+
+    /// <summary>The user asked for live data but no token is configured on the server: pages show the setup guide instead of silently staying in demo.</summary>
+    public bool LiveSetupRequested { get; private set; }
+
+    /// <summary>Switches the data source and resets everything that belonged to the previous one. Returns false when live was requested without a token.</summary>
+    public bool SetMode(DataMode mode)
     {
-        if (mode == DataMode.Live && !LiveAvailable) return;
-        if (Mode == mode) return;
+        if (mode == DataMode.Live && !LiveAvailable) { LiveSetupRequested = true; Changed?.Invoke(); return false; }
+        LiveSetupRequested = false;
+        if (Mode == mode) { Changed?.Invoke(); return true; }
         CancelDiscovery();
-        Mode = mode; _repos.Clear(); Selected = null; Connection = null; RateLimit = null; PagesLoaded = 0; EstimatedPages = null; DiscoveryError = null;
+        _generation++;                                      // a discovery still in flight belongs to the old source and must not touch state any more
+        Mode = mode; SourceVersion++;
+        _repos.Clear(); _recent.Clear(); Selected = null; OrgFilter = null; Connection = null; RateLimit = null;
+        PagesLoaded = 0; EstimatedPages = null; DiscoveryError = null; CheckingConnection = false;
         Discovery = DiscoveryState.Idle;
         Changed?.Invoke();
         _ = StartDiscoveryAsync();
+        return true;
     }
 
     public void Select(RepoRef? repo)
     {
         if (Selected.Equals(repo)) return;
         Selected = repo;
-        if (repo is { } r) { _recent.RemoveAll(x => x.Equals(r)); _recent.Insert(0, r); if (_recent.Count > 6) _recent.RemoveAt(6); }
+        if (repo is { } r)
+        {
+            OrgFilter = r.Owner;                            // the owner picker follows the repository
+            _recent.RemoveAll(x => x.Equals(r)); _recent.Insert(0, r); if (_recent.Count > 6) _recent.RemoveAt(6);
+        }
+        Changed?.Invoke();
+    }
+
+    public void SetOrg(string? owner)
+    {
+        owner = string.IsNullOrWhiteSpace(owner) ? null : owner;
+        if (string.Equals(OrgFilter, owner, StringComparison.Ordinal)) return;
+        OrgFilter = owner;
         Changed?.Invoke();
     }
 
@@ -71,24 +102,28 @@ public sealed class AppSession : IDisposable
     public async Task StartDiscoveryAsync()
     {
         if (Discovery == DiscoveryState.Running) return;
-        _cts?.Dispose(); _cts = new CancellationTokenSource();
-        var ct = _cts.Token;
-        Discovery = DiscoveryState.Running; DiscoveryError = null;
-        if (Discovery == DiscoveryState.Running && _repos.Count > 0) { _repos.Clear(); PagesLoaded = 0; }
-        Changed?.Invoke();
+        var gen = ++_generation;
+        _cts?.Cancel();                                     // never disposed here: an old loop may still be observing it
+        var cts = _cts = new CancellationTokenSource();
+        var ct = cts.Token;
+        _repos.Clear(); PagesLoaded = 0; EstimatedPages = null; DiscoveryError = null;
         if (Mode == DataMode.Live && !LiveAvailable) { Discovery = DiscoveryState.Failed; DiscoveryError = "No GitHub token configured."; Changed?.Invoke(); return; }
+        Discovery = DiscoveryState.Running;
+        Changed?.Invoke();
         try
         {
             await foreach (var page in Provider.ListRepositoriesAsync(ct))
             {
+                if (gen != _generation) return;             // superseded by a mode switch or a newer discovery
                 _repos.AddRange(page.Items);
                 PagesLoaded = page.PageNumber; EstimatedPages ??= page.EstimatedPages;
                 Changed?.Invoke();
             }
+            if (gen != _generation) return;
             Discovery = DiscoveryState.Completed;
         }
-        catch (OperationCanceledException) { Discovery = DiscoveryState.Cancelled; }
-        catch (CiProviderException ex) { Discovery = DiscoveryState.Failed; DiscoveryError = ex.Message; }
+        catch (OperationCanceledException) { if (gen != _generation) return; Discovery = DiscoveryState.Cancelled; }
+        catch (CiProviderException ex) { if (gen != _generation) return; Discovery = DiscoveryState.Failed; DiscoveryError = ex.Message; }
         Changed?.Invoke();
     }
 
@@ -103,7 +138,7 @@ public sealed class AppSession : IDisposable
         finally { CheckingConnection = false; Changed?.Invoke(); }
     }
 
-    public void Dispose() { _cts?.Cancel(); _cts?.Dispose(); }
+    public void Dispose() { _generation++; _cts?.Cancel(); _cts?.Dispose(); }
 }
 
 /// <summary>Scoped <see cref="ICiProvider"/> that forwards to whichever provider the session currently uses.</summary>
