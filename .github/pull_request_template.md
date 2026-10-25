@@ -10,15 +10,16 @@ What does this change do and why?
 
 ## Contribution rights
 
-CIWorkbench Community is **source-available under Apache 2.0 + Commons Clause v1.0**, not OSI-approved open source. Read [LICENSE](../LICENSE) and [LICENSING.md](../LICENSING.md).
+CIWorkbench Community is source-available under Apache 2.0 + Commons Clause v1.0. See [LICENSE](https://github.com/saas-factory-labs/ci-workbench/blob/main/LICENSE) and [LICENSING.md](https://github.com/saas-factory-labs/ci-workbench/blob/main/LICENSING.md).
 
-For code or documentation contributions from outside project copyright holders:
+For external code/documentation contributions:
 
-- [ ] I have read [CLA.md](../CLA.md) and agree to grant the described contribution rights.
-- [ ] I own the submitted contribution or am authorized by my employer/other copyright holders to grant these rights.
-- [ ] I have disclosed any third-party code and its license obligations.
+- [ ] I have read the [CIWorkbench CLA v1.0](https://github.com/saas-factory-labs/ci-workbench/blob/main/CLA.md).
+- [ ] I have **posted the explicit CLA acceptance statement** from CLA §7 as a comment on this PR, or provided covered corporate acceptance.
+- [ ] I own my contributions or have documented authorization from their rights holder/employer.
+- [ ] I have identified co-authors and disclosed any third-party code/license obligations.
 
-**Maintainer:** confirm CLA acceptance/authority through the approved process before merging. This checkbox is not a substitute for verified acceptance; no CLA bot is configured yet. The proposed CLA and its acceptance process require legal review before external-contribution onboarding.
+**Maintainer:** verify that every relevant author/rightsholder is covered and post a verification comment referencing the acceptance record before merging. PR checkboxes alone do not establish acceptance. Corporate authorizations must be checked without posting private documents publicly.
 
 ## Screenshots (if UI change)
 
