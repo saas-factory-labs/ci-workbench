@@ -40,10 +40,12 @@ This license applies to CIWorkbench source for which the licensor has the requir
 
 ## Contributing and re-licensing
 
-Contributors retain ownership of their original contributions. To support future Community and commercial releases, the maintainers ask contributing copyright holders to agree to [CLA.md](CLA.md), a **separate non-exclusive contributor license** granting broad use and relicensing rights without transferring copyright.
+Contributors retain copyright in their original Contributions. To support both Community and commercial editions, CIWorkbench requires external code/documentation contributors to accept the [Contributor License Agreement v1.0](CLA.md). The CLA grants broad, non-exclusive sublicensing and relicensing rights without transferring copyright.
 
-The CLA is included as a proposed agreement pending legal review and a verified acceptance procedure. Do not assume a GitHub PR checkbox alone is sufficient evidence of legal consent. Maintainers must verify rights/acceptance before merging outside contributions. Non-code feedback does not require a CLA.
+**Acceptance process:** the contributor explicitly accepts CLA v1.0 in a GitHub pull-request comment; for employer-owned code, an authorized representative of the rights holder must accept. Maintainers check coverage of all authors/co-authors, verify any required company authorization, and record an acceptance-verification comment **before merging**. A PR checkbox alone does not constitute the project's required acceptance record. No automated CLA bot is installed.
 
-**Legal review before merge:** confirm that the named licensor and CLA grantee are the correct rights holder/legal person, and that no outside contributions already included require separate permission to relicense.
+For questions about rights ownership, third-party licenses, or company contributions, resolve the situation with the maintainer before merge. General issue/UX feedback does not require a CLA.
 
-This page summarizes the intended licensing model, not legal advice. In any conflict, the actual license text and agreements control.
+The named CLA grantee and current Community licensor are **Casper Rubæk**, as stated in the repository documents. Identifying the grantee in these documents and recording GitHub consent do not independently prove copyright ownership, the signer's legal authority, or enforceability in every jurisdiction; those must be assessed for the specific contribution.
+
+This page summarizes the licensing model, not legal advice. In any conflict, the actual license text and agreements control.
