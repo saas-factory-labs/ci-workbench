@@ -21,6 +21,7 @@ public sealed class DemoCiProvider : ICiProvider
     private readonly Dictionary<RepoRef, List<WorkflowRunInfo>> _runs = [];
     private readonly Dictionary<long, List<JobInfo>> _jobs = [];
     private readonly Dictionary<long, string> _logs = [];
+    private readonly Dictionary<long, List<JobInfo>> _priorAttempts = [];
     private readonly Dictionary<(RepoRef, string), string> _files = [];
 
     public DemoCiProvider(TimeProvider? time = null)
@@ -122,7 +123,7 @@ public sealed class DemoCiProvider : ICiProvider
     private void BuildMonorepo()
     {
         var repo = Monorepo;
-        _repos[repo] = new RepositoryInfo(repo, $"Synthetic large monorepo with {MonorepoWorkflows.Length} workflows (demo data).", "main", false, $"https://example.invalid/{repo.FullName}", _now.AddMinutes(-12));
+        _repos[repo] = new RepositoryInfo(repo, $"Synthetic large monorepo with {MonorepoWorkflows.Length} workflows (demo data).", "main", true, $"https://example.invalid/{repo.FullName}", _now.AddMinutes(-12), "Organization");
         var wfs = new List<WorkflowInfo>(); var runs = new List<WorkflowRunInfo>();
         for (var i = 0; i < MonorepoWorkflows.Length; i++)
         {
@@ -146,12 +147,18 @@ public sealed class DemoCiProvider : ICiProvider
                 var branch = scheduled ? "main" : Branches[(i + n) % Branches.Length];
                 var ev = scheduled ? "schedule" : branch == "main" ? "push" : "pull_request";
                 var dur = TimeSpan.FromSeconds(90 + (i * 37 + n * 11) % 600);
-                var run = new WorkflowRunInfo(id, wf.Id, path, name, 200 + n, 1, state, ev, branch, Sha(id), $"Demo commit message {id % 97}", Actors[(i + n) % Actors.Length],
+                var rerun = state.IsCompleted() && ((file == "e2e-tests" && n == 2) || (file == "ci-api" && n == 3));
+                var run = new WorkflowRunInfo(id, wf.Id, path, name, 200 + n, rerun ? 2 : 1, state, ev, branch, Sha(id), $"Demo commit message {id % 97}", Actors[(i + n) % Actors.Length],
                     started, started, state.IsActive() ? started.AddMinutes(1) : started + dur, $"https://example.invalid/{repo.FullName}/actions/runs/{id}");
                 runs.Add(run);
                 var jobName = rec.Job ?? "build";
                 var steps = rec.Step is null ? new[] { "Checkout", "Setup toolchain", "Restore", "Build", "Test" } : new[] { "Checkout", "Setup toolchain", rec.Step };
-                _jobs[id] = [MakeJob(id, 0, jobName, state, started, dur, steps)];
+                var kind = RunnerKinds.GetValueOrDefault(file, "trusted");
+                var labels = ActualLabels(kind, n);
+                var jobs = new List<JobInfo> { MakeJob(id, 0, jobName, state, started, dur, steps, labels) };
+                if (file is "e2e-tests" or "unit-tests") jobs.Add(MakeJob(id, 1, jobName + " (firefox)", state == RunState.Failure ? RunState.Success : state, started, dur - TimeSpan.FromSeconds(20), steps, labels));   // matrix leg: a distinct job id
+                _jobs[id] = jobs;
+                if (rerun) _priorAttempts[id] = [MakeJob(id, 5, jobName, RunState.Failure, started - dur - TimeSpan.FromMinutes(12), dur, steps, labels, attempt: 1)];
                 if (state == RunState.Failure)
                     _logs[id * 10] = LogFor(rec.Kind ?? "flaky", id);
             }
@@ -184,8 +191,9 @@ public sealed class DemoCiProvider : ICiProvider
                 description: Automation driven by coding agents
                 workflows: []
             """;
-        foreach (var (file, _, comment) in MonorepoWorkflows.Where(w => w.Comment is not null))
-            _files[(repo, $".github/workflows/{file}.yml")] = $"# ci-workbench-group: {comment}\nname: demo\non: push\n";
+        foreach (var (file, _, comment) in MonorepoWorkflows)
+            _files[(repo, $".github/workflows/{file}.yml")] = (comment is null ? "" : $"# ci-workbench-group: {comment}\n")
+                + $"name: demo\non: push\njobs:\n  build:\n    runs-on: {RunsOnFor(RunnerKinds.GetValueOrDefault(file, "trusted"))}\n    steps:\n      - run: echo demo\n";
     }
 
     // ---------------------------------------------------------------- fixture B
@@ -193,7 +201,7 @@ public sealed class DemoCiProvider : ICiProvider
     private void BuildActorRepo()
     {
         var repo = ActorRepo;
-        _repos[repo] = new RepositoryInfo(repo, "Daily CI health checks and production validation for a synthetic review scraper (demo data).", "main", false, $"https://example.invalid/{repo.FullName}", _now.AddHours(-2));
+        _repos[repo] = new RepositoryInfo(repo, "Daily CI health checks and production validation for a synthetic review scraper (demo data).", "main", true, $"https://example.invalid/{repo.FullName}", _now.AddHours(-2), "Organization");
         var ci = new WorkflowInfo(2001, "CI", ".github/workflows/ci.yml", true, null);
         var quality = new WorkflowInfo(2002, "Code Quality", ".github/workflows/quality.yml", true, null);
         _workflows[repo] = [ci, quality];
@@ -213,11 +221,11 @@ public sealed class DemoCiProvider : ICiProvider
                 "Demo: scheduled health check", "github-actions", started, started, started + dur, $"https://example.invalid/{repo.FullName}/actions/runs/{id}"));
             _jobs[id] =
             [
-                MakeJob(id, 0, "TypeScript Build", RunState.Success, started, TimeSpan.FromSeconds(134), ["Checkout", "Install", "tsc"]),
-                MakeJob(id, 1, "Jest core tests", RunState.Success, started, TimeSpan.FromSeconds(262), ["Checkout", "Install", "Run jest"]),
-                MakeJob(id, 2, "Production Image Smoke Test", RunState.Success, started, TimeSpan.FromSeconds(68), ["Pull image", "Run container smoke test"]),
-                MakeJob(id, 3, "Deep-paging test", pagingFail ? RunState.Failure : RunState.Success, started, TimeSpan.FromSeconds(300), ["Checkout", "Install", "Run deep-paging pages 10-15"]),
-                MakeJob(id, 4, "Browser scenario tests", scenario != "pass" ? RunState.Failure : RunState.Success, started, TimeSpan.FromSeconds(240), ["Checkout", "Install browsers", "Run scenarios"]),
+                MakeJob(id, 0, "TypeScript Build", RunState.Success, started, TimeSpan.FromSeconds(134), ["Checkout", "Install", "tsc"], Gh),
+                MakeJob(id, 1, "Jest core tests", RunState.Success, started, TimeSpan.FromSeconds(262), ["Checkout", "Install", "Run jest"], Gh),
+                MakeJob(id, 2, "Production Image Smoke Test", RunState.Success, started, TimeSpan.FromSeconds(68), ["Pull image", "Run container smoke test"], Gh),
+                MakeJob(id, 3, "Deep-paging test", pagingFail ? RunState.Failure : RunState.Success, started, TimeSpan.FromSeconds(300), ["Checkout", "Install", "Run deep-paging pages 10-15"], Gh),
+                MakeJob(id, 4, "Browser scenario tests", scenario != "pass" ? RunState.Failure : RunState.Success, started, TimeSpan.FromSeconds(240), ["Checkout", "Install browsers", "Run scenarios"], ["tenki-standard-small-2c-4g"]),
             ];
             if (pagingFail) _logs[id * 10 + 3] = LogFor("paging", id);
             if (scenario != "pass") _logs[id * 10 + 4] = LogFor(scenario, id);
@@ -231,8 +239,8 @@ public sealed class DemoCiProvider : ICiProvider
                 n % 2 == 0 ? "river-dev" : "sam-test", started, started, started.AddSeconds(95), $"https://example.invalid/{repo.FullName}/actions/runs/{id}"));
             _jobs[id] =
             [
-                MakeJob(id, 0, "Lint", RunState.Success, started, TimeSpan.FromSeconds(41), ["Checkout", "Install", "eslint"]),
-                MakeJob(id, 1, "Type check", RunState.Success, started, TimeSpan.FromSeconds(54), ["Checkout", "Install", "tsc --noEmit"]),
+                MakeJob(id, 0, "Lint", RunState.Success, started, TimeSpan.FromSeconds(41), ["Checkout", "Install", "eslint"], Gh),
+                MakeJob(id, 1, "Type check", RunState.Success, started, TimeSpan.FromSeconds(54), ["Checkout", "Install", "tsc --noEmit"], Gh),
             ];
         }
         _runs[repo] = runs;
@@ -253,24 +261,108 @@ public sealed class DemoCiProvider : ICiProvider
         for (var i = 0; i < names.Length; i++)
         {
             var repo = new RepoRef(i % 3 == 0 ? "example-labs" : Owner, names[i]);
-            _repos[repo] = new RepositoryInfo(repo, $"Synthetic repository {names[i]} (demo data).", "main", i % 4 == 0, $"https://example.invalid/{repo.FullName}", _now.AddDays(-1 - i));
+            _repos[repo] = new RepositoryInfo(repo, $"Synthetic repository {names[i]} (demo data).", "main", i % 4 == 0, $"https://example.invalid/{repo.FullName}", _now.AddDays(-1 - i), "Organization");
             _workflows[repo] = [new WorkflowInfo(3000 + i, "CI", ".github/workflows/ci.yml", true, null)];
             _runs[repo] = [];
         }
+        BuildFillerHistory(new RepoRef("example-labs", "billing-service"), 3000, [["ubuntu-latest"], ["windows-latest"], ["self-hosted", "linux", "x64"], ["macos-latest"]]);
+        BuildFillerHistory(new RepoRef("example-labs", "mobile-app"), 3003, [["ubuntu-latest"], ["macos-latest"]]);   // a public repository: standard runners are free
     }
+
+    /// <summary>A few completed runs on a mix of runner labels, in the current month, for the account that has no billing permission.</summary>
+    private void BuildFillerHistory(RepoRef repo, long workflowId, string[][] labelSets)
+    {
+        var wf = _workflows[repo][0];
+        var runs = new List<WorkflowRunInfo>();
+        for (var n = 0; n < 8; n++)
+        {
+            var id = 3_000_000 + workflowId * 10 + n;
+            var started = _now.AddHours(-(n * 7 + 2));
+            var dur = TimeSpan.FromSeconds(180 + n * 41);
+            runs.Add(new WorkflowRunInfo(id, wf.Id, wf.Path, "CI", 50 + n, 1, RunState.Success, "push", "main", Sha(id), "Demo commit", "river-dev", started, started, started + dur, $"https://example.invalid/{repo.FullName}/actions/runs/{id}"));
+            _jobs[id] = labelSets.Select((l, k) => MakeJob(id, k, $"build ({string.Join(' ', l)})", RunState.Success, started, dur + TimeSpan.FromSeconds(k * 30), ["Checkout", "Build"], l)).ToList();
+        }
+        _runs[repo] = runs;
+    }
+
+    // ---------------------------------------------------------------- runner insights
+
+    private static readonly string[] Gh = ["ubuntu-latest"];
+
+    /// <summary>Which runner variable (or literal label) each monorepo workflow is configured with.</summary>
+    private static readonly Dictionary<string, string> RunnerKinds = new()
+    {
+        ["ci-api"] = "default", ["ci-web"] = "default", ["ci-worker"] = "default", ["ci-cli"] = "default", ["ci-shared"] = "default", ["ci-docs"] = "default",
+        ["lint"] = "default", ["format-check"] = "default", ["type-check"] = "default", ["unit-tests"] = "default",
+        ["integration-tests"] = "fast", ["coverage-report"] = "fast", ["e2e-tests"] = "lit:bp-ubuntu-latest-4-vcpu", ["benchmarks"] = "lit:blacksmith-4vcpu-ubuntu-2404",
+        ["codeql"] = "heavy", ["dependency-review"] = "heavy", ["secret-scan"] = "heavy", ["container-scan"] = "heavy", ["license-audit"] = "heavy", ["sbom"] = "heavy", ["link-check"] = "heavy", ["nightly"] = "heavy",
+        ["agent-triage"] = "lit:celesto-cloud", ["agent-review"] = "lit:celesto-cloud", ["agent-docs"] = "lit:celesto-cloud",
+    };
+
+    private static string RunsOnFor(string kind) => kind switch
+    {
+        "default" => "${{ fromJSON(vars.CI_RUNNER_DEFAULT || '[\"tenki-standard-small-2c-4g\"]') }}",
+        "fast" => "${{ fromJSON(vars.CI_RUNNER_FAST || '[\"avrea-ubuntu-latest-4-vcpu\"]') }}",
+        "heavy" => "${{ fromJSON(vars.CI_RUNNER_HEAVY || '[\"hetzner-arc\"]') }}",
+        "trusted" => "${{ fromJSON(vars.CI_RUNNER_TRUSTED || '[\"ubuntu-latest\"]') }}",
+        _ => kind[4..],
+    };
+
+    /// <summary>
+    /// What really ran. The demo router moved DEFAULT from Tenki to Avrea two runs ago, so the configured variable (Avrea) and the
+    /// history (mostly Tenki) differ on purpose: that is the "configured vs actually executed" case.
+    /// </summary>
+    private static string[] ActualLabels(string kind, int n) => kind switch
+    {
+        "default" => n < 2 ? ["avrea-ubuntu-latest"] : ["tenki-standard-small-2c-4g"],
+        "fast" => ["avrea-ubuntu-latest-4-vcpu"],
+        "heavy" => ["hetzner-arc"],
+        "trusted" => ["ubuntu-latest"],
+        _ => [kind[4..]],
+    };
+
+    public Task<IReadOnlyList<JobInfo>> ListJobAttemptsAsync(RepoRef repo, long runId, CancellationToken ct)
+    {
+        var latest = _jobs.TryGetValue(runId, out var j) ? j : [];
+        return Task.FromResult<IReadOnlyList<JobInfo>>(_priorAttempts.TryGetValue(runId, out var prior) ? [.. prior, .. latest] : latest);
+    }
+
+    /// <summary>The organisation the demo token may read variables for; the second account models a token without the Variables permission.</summary>
+    public Task<ActionsVariables> GetActionsVariablesAsync(RepoRef repo, CancellationToken ct) =>
+        Task.FromResult(repo.Owner == Owner
+            ? new ActionsVariables(VariablesAccess.Available, new Dictionary<string, string>
+            {
+                ["CI_RUNNER_DEFAULT"] = "[\"avrea-ubuntu-latest\"]", ["CI_RUNNER_FAST"] = "[\"avrea-ubuntu-latest-4-vcpu\"]",
+                ["CI_RUNNER_HEAVY"] = "[\"hetzner-arc\"]", ["CI_RUNNER_TRUSTED"] = "[\"ubuntu-latest\"]",
+            }, null)
+            : new ActionsVariables(VariablesAccess.PermissionMissing, new Dictionary<string, string>(), "Reading Actions variables needs the fine-grained permission Variables: Read-only (repository and, for shared variables, organization)."));
+
+    /// <summary>Verified billing for the demo organisation (its free minutes are used up); none for the other account (no billing permission).</summary>
+    public Task<BillingUsage> GetBillingUsageAsync(string owner, string? ownerType, int year, int month, CancellationToken ct) =>
+        Task.FromResult(owner == Owner
+            ? new BillingUsage(BillingAccess.Available,
+            [
+                new BillingLine("Actions Linux", "Minutes", 2630, 0.006, 15.78, 12.00, 3.78),
+                new BillingLine("Actions macOS 3-core", "Minutes", 85, 0.062, 5.27, 5.27, 0),
+                new BillingLine("Actions storage", "GigabyteHours", 75.8, 0.00033602, 0.0255, 0.0255, 0),
+            ], null, year, month, _now)
+            : new BillingUsage(BillingAccess.PermissionMissing, [], $"Billing usage needs the fine-grained organization permission Administration: Read-only (and an organization owner or billing manager). Usage is estimated from job history instead.", year, month, null));
 
     // ---------------------------------------------------------------- helpers
 
     private static string Sha(long seed) => (seed * 2654435761L % 0xFFFFFFFFFL).ToString("x9");
 
-    private JobInfo MakeJob(long runId, int k, string name, RunState state, DateTimeOffset started, TimeSpan dur, string[] steps)
+    private JobInfo MakeJob(long runId, int k, string name, RunState state, DateTimeOffset started, TimeSpan dur, string[] steps, string[]? labels = null, int attempt = 1)
     {
         var failIdx = state == RunState.Failure ? steps.Length - 1 : -1;
         var list = steps.Select((s, idx) => new StepInfo(idx + 1, s,
             state.IsActive() ? (idx == 0 ? RunState.InProgress : RunState.Queued)
             : state == RunState.Cancelled ? (idx < steps.Length - 1 ? RunState.Success : RunState.Cancelled)
             : failIdx >= 0 ? (idx < failIdx ? RunState.Success : RunState.Failure) : RunState.Success)).ToList();
-        return new JobInfo(runId * 10 + k, name, state, started, state.IsActive() ? null : started + dur, list, $"https://example.invalid/jobs/{runId * 10 + k}");
+        labels ??= Gh;
+        var hosted = labels.Any(l => l.StartsWith("ubuntu-", StringComparison.Ordinal) || l.StartsWith("windows-", StringComparison.Ordinal) || l.StartsWith("macos-", StringComparison.Ordinal)) && !labels.Contains("self-hosted");
+        return new JobInfo(runId * 10 + k, name, state, state == RunState.Queued ? null : started, state.IsActive() ? null : started + dur, list, $"https://example.invalid/jobs/{runId * 10 + k}",
+            labels, hosted ? $"GitHub Actions {runId % 90 + 1}" : $"{labels[0]}-{runId % 7}", hosted ? "GitHub Actions" : "Default", attempt, started.AddSeconds(-12));
     }
 
     private string LogFor(string kind, long runId)

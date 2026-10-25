@@ -62,6 +62,10 @@ The Jobs tab shows the outcome of every job across recent runs, so you can see w
 
 ![Jobs tab with per-job outcome history](docs/screenshots/dark/job-history.webp)
 
+### See which runners your CI really uses
+
+**Runner Insights** (Community, read-only) shows the runner providers behind your jobs (GitHub-hosted, Tenki, Avrea, BuildPulse, Celesto, Hetzner ARC, Blacksmith, self-hosted and custom labels), their usage in the current billing period, and any allowance you configured, with every number labelled **Verified** (GitHub billing API), **Estimated** (from job history) or unavailable. It works with Actions read access alone; billing permissions are optional. Details, calculations and limits: [docs/configuration/runner-insights.md](docs/configuration/runner-insights.md).
+
 Also included: Light, Dark and System themes, Comfortable and Compact density, and responsive layouts down to phone width.
 
 ## Quick start (demo mode, no credentials)

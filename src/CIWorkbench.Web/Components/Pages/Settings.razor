@@ -30,6 +30,8 @@
         <p class="ciw-muted">Needs (read-only): <strong>Metadata</strong>, <strong>Actions: Read</strong>, <strong>Contents: Read</strong>. Never grant Actions: Write.</p>
     </section>
 
+    <RunnerInsightsSettings />
+
     <section class="card">
         <h2>API budget</h2>
         @{ var rl = Session.Tracker.Last ?? Session.RateLimit; }

@@ -1,0 +1,197 @@
+@using CIWorkbench.Core.Runners
+@implements IDisposable
+@inject RunnerInsightsData Runners
+@inject AppSession Session
+@inject CiwRoutes Routes
+@inject TimeProvider Time
+
+@* Repository "Runners": usage grouped by provider, then each workflow's configured runner next to what actually ran.
+   Loaded on request in live mode (it reads workflow files and job history); the demo loads it straight away. *@
+<section class="ov-section ru-repo" id="runners" aria-label="Runners" data-testid="repo-runners" aria-busy="@(_loading ? "true" : "false")">
+    <h2 class="section-title">Runners <span class="ciw-muted ov-count">@Period</span></h2>
+
+    @if (_view is null && !_loading && _error is null)
+    {
+        <div class="ciw-notice info" data-testid="rr-start">
+            <p>Which runner providers this repository uses, what each workflow is configured to run on, and what actually ran this billing period.</p>
+            <p class="ciw-muted">Reads workflow files and finished-job history (a bounded number of GitHub requests; needs only Actions and Contents read).</p>
+            <button type="button" class="ciw-btn" @onclick="() => LoadAsync(false, false)" data-action="load-runners">Analyze runners</button>
+        </div>
+    }
+    else if (_loading && _view is null)
+    {
+        <div class="ciw-empty slim" role="status" data-testid="rr-loading"><progress aria-label="Loading runners"></progress> Reading workflow files and job history…</div>
+    }
+    else if (_error is not null)
+    {
+        <div class="ciw-notice fail" role="alert" data-testid="rr-error">@_error <button type="button" class="ciw-btn sm" @onclick="() => LoadAsync(true, false)">Try again</button></div>
+    }
+    else if (_view is { } v)
+    {
+        var partial = v.Coverage.Overall == Coverage.Partial;
+        <div class="ru-meta">
+            <span class="pill @(partial ? "warn" : "ver")" data-testid="rr-coverage" title="@v.Coverage.RunsMeasured of @v.Coverage.RunsEligible finished runs of the period collected@(v.Coverage.RunWindowTruncated ? "; GitHub caps run listings, so more exist" : "")">@(partial ? "Partial" : "Complete")</span>
+            <span class="ciw-muted">@v.Coverage.RunsMeasured of @v.Coverage.RunsEligible runs collected</span>
+            <span class="ciw-muted">Updated @Fmt.Ago(v.UpdatedAt, Time.GetUtcNow())</span>
+            <span class="ru-actions">
+                @if (v.Coverage.RunsMissing > 0) { <button type="button" class="ciw-btn sm" @onclick="() => LoadAsync(false, true)" disabled="@_loading" data-action="collect-more-runners">Collect remaining (@v.Coverage.RunsMissing)</button> }
+                <button type="button" class="ciw-btn sm" @onclick="() => LoadAsync(true, false)" disabled="@_loading" data-action="refresh-runners">Refresh</button>
+            </span>
+        </div>
+        @if (partial && v.Coverage.RunsEligible > 0) { <progress class="ru-collect" max="@v.Coverage.RunsEligible" value="@v.Coverage.RunsMeasured" aria-label="Collection progress"></progress> }
+        <p class="ru-fine ciw-muted" data-testid="rr-shared">
+            <span class="pill est" title="@RunnerFmt.QualityTitle(DataQuality.Estimated)">Estimated</span> from this repository's finished jobs. Allowances and billing are shared by the whole @(v.Repo.Owner) account (or provider account), not by this repository:
+            <a href="overview">Overview</a> · <a href="settings#runner-insights">Settings</a>.
+            @if (!v.IsPrivate) { <span> Public repository: GitHub's standard runners are free here.</span> }
+        </p>
+
+        @if (!v.Variables.IsAvailable && UsesVariables(v))
+        {
+            <div class="ciw-notice info" role="status" data-testid="rr-vars-missing">Runner variables (<code>vars.*</code>) are not readable, so those workflows show an unknown configured runner. @v.Variables.Reason</div>
+        }
+
+        @if (v.Usage.Providers.Count == 0)
+        {
+            <div class="ciw-empty slim" data-testid="rr-none">No finished jobs in the current billing period were found for the runs collected.</div>
+        }
+        else
+        {
+            <div class="rr-groups" data-testid="rr-usage">
+                @foreach (var p in v.Usage.Providers)
+                {
+                    <div class="rr-group" data-provider="@p.Provider.Id">
+                        <div class="rr-ghead">
+                            <strong title="@p.Provider.Note">@p.Provider.Name</strong>
+                            <span class="ciw-muted">@p.Jobs @(p.Jobs == 1 ? "job" : "jobs")</span>
+                            <span class="rr-gsum">@(partial ? "≥ " : "")@RunnerFmt.Amount(p.Observed, p.Unit)</span>
+                        </div>
+                        @foreach (var t in p.RunnerTypes)
+                        {
+                            <div class="rr-row" role="listitem">
+                                <code>@t.RunnerType</code>
+                                <span data-label="Jobs">@t.Jobs</span>
+                                <span data-label="Usage">@RunnerFmt.Amount(t.Units, p.Unit)@(p.Unit != UsageUnit.Minutes ? $" · {t.RawMinutes:N0} min run" : "")</span>
+                                <span class="ciw-muted" data-label="Workflows">@WorkflowsOn(v, p.Provider.Id, t.RunnerType) workflows</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+
+        <h3 class="ov-sub">Workflows: configured vs actually ran</h3>
+        @if (v.Workflows.Count == 0) { <div class="ciw-empty slim">No workflows.</div> }
+        else
+        {
+            <div class="ov-list" role="list" data-testid="rr-workflows">
+                <div class="rr-wrow ov-head ov-row" aria-hidden="true"><span>Workflow</span><span>Configured runner</span><span>Actually ran on</span><span>Status</span></div>
+                @foreach (var w in v.Workflows)
+                {
+                    <div class="rr-wrow" role="listitem" data-workflow="@w.Workflow.Path" data-historical="@(w.IsHistorical ? "true" : "false")">
+                        <span class="ov-name">
+                            @if (w.IsHistorical) { <strong>@w.Workflow.Name</strong> }
+                            else { <a href="@Routes.Workflow(v.Repo, w.Workflow.Id)"><strong>@w.Workflow.Name</strong></a> }
+                            <small class="ciw-muted">@w.Workflow.Path@(w.IsHistorical ? " · historical" : "")</small>
+                        </span>
+                        <span class="rr-cfg" data-label="Configured runner">
+                            @if (w.IsHistorical) { <span class="ciw-muted" title="No longer in the repository's workflow list; only past jobs are known.">not in current workflows</span> }
+                            else if (RunnerInsightsData.IsDynamic(w.Workflow.Path)) { <span class="ciw-muted" title="Managed by GitHub (for example Copilot, dependency graph or Dependabot): there is no workflow file in the repository.">GitHub-managed workflow</span> }
+                            else if (w.DefinitionUnreadable) { <span class="ciw-muted" title="The file could not be read from the default branch (it may only exist on another branch) or could not be parsed. Its runners are unknown, not invalid.">definition not read</span> }
+                            else if (w.Configured.Count == 0) { <span class="ciw-muted">no runs-on found</span> }
+                            else
+                            {
+                                @foreach (var c in w.Configured.DistinctBy(c => (string.Join(',', c.Labels), c.Role, c.Source)))
+                                {
+                                    <span class="rr-chip @c.Role.ToString().ToLowerInvariant()" title="@(c.Note ?? c.Source)">@(c.Labels.Count == 0 ? "unknown" : string.Join(", ", c.Labels)) <em>@RunnerFmt.RoleLabel(c.Role)</em></span>
+                                }
+                            }
+                        </span>
+                        <span data-label="Actually ran on">
+                            @if (w.Actual.Count == 0) { <span class="ciw-muted">no finished jobs collected</span> }
+                            else
+                            {
+                                @foreach (var a in w.Actual)
+                                {
+                                    <a class="rr-chip actual" href="@Routes.Run(v.Repo, a.LatestRunId)" title="Open the latest run on this runner">@a.RunnerType <em>@a.Jobs @(a.Jobs == 1 ? "job" : "jobs")</em></a>
+                                }
+                            }
+                        </span>
+                        <span data-label="Status">@StatusOf(w)</span>
+                    </div>
+                }
+            </div>
+            @if (v.FilesTotal > RunnerInsightsData.WorkflowFileLimit)
+            {
+                <p class="ru-fine ciw-muted">Showing the first @RunnerInsightsData.WorkflowFileLimit of @v.FilesTotal active workflows; @v.FilesRead workflow files were readable.</p>
+            }
+        }
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public RepoRef Repo { get; set; }
+
+    private RepoRunnerView? _view;
+    private bool _loading;
+    private string? _error;
+    private CancellationTokenSource? _cts;
+    private int _seenSource;
+    private RepoRef _loaded;
+
+    private string Period => (_view?.Usage.Providers.FirstOrDefault()?.Period ?? BillingPeriod.For(Time.GetUtcNow())).Label;
+
+    protected override void OnInitialized() { _seenSource = Session.SourceVersion; Session.Changed += OnSession; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loaded.Equals(Repo) && _loaded != default) return;
+        _loaded = Repo; _view = null; _error = null;
+        _cts?.Cancel();
+        if (Session.Mode == DataMode.Demo) await LoadAsync(false, false);          // synthetic and instant; live mode waits for the user's click
+    }
+
+    // A demo/live switch drops what was loaded: nothing from the other source may stay on screen.
+    private void OnSession() => InvokeAsync(async () =>
+    {
+        if (Session.SourceVersion == _seenSource) return;
+        _seenSource = Session.SourceVersion; _cts?.Cancel(); _view = null; _error = null; _loading = false;
+        StateHasChanged();
+        if (Session.Mode == DataMode.Demo) await LoadAsync(false, false);
+    });
+
+    private async Task LoadAsync(bool force, bool more)
+    {
+        _cts?.Cancel(); var cts = _cts = new CancellationTokenSource();
+        _loading = true; _error = null; StateHasChanged();
+        var repo = Repo; var source = Session.SourceVersion;
+        try
+        {
+            var view = await Runners.LoadRepoAsync(repo, force, cts.Token, more);
+            if (cts.IsCancellationRequested || source != Session.SourceVersion || !repo.Equals(Repo)) return;      // a newer request or another source owns the screen now
+            _view = view;
+        }
+        catch (OperationCanceledException) { return; }
+        catch (CiProviderException ex) { if (!cts.IsCancellationRequested) _error = ex.Message; }
+        catch (Exception) { if (!cts.IsCancellationRequested) _error = "Runner information could not be loaded."; }
+        finally { if (!cts.IsCancellationRequested) { _loading = false; StateHasChanged(); } }
+    }
+
+    private static bool UsesVariables(RepoRunnerView v) => v.Workflows.Any(w => w.Configured.Any(c => c.Source.Contains("vars.", StringComparison.Ordinal)));
+
+    private static int WorkflowsOn(RepoRunnerView v, string provider, string runnerType) => v.Workflows.Count(w => w.Actual.Any(a => a.ProviderId == provider && a.RunnerType == runnerType));
+
+    private static string StatusOf(WorkflowRunnerRow w)
+    {
+        if (w.Actual.Count == 0) return "Not run this period";
+        if (w.IsHistorical) return "Historical only";
+        var cfg = w.Configured.Where(c => c.Role == RunnerRole.Configured).SelectMany(c => c.Labels).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var fallback = w.Configured.Where(c => c.Role == RunnerRole.Fallback).SelectMany(c => c.Labels).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (cfg.Count == 0 && fallback.Count == 0) return w.DefinitionUnreadable || w.Configured.Count == 0 ? "Configuration not checked" : "Configured runner unknown";
+        var off = w.Actual.Where(a => !cfg.Contains(a.RunnerType)).ToList();
+        if (off.Count == 0) return "Ran as configured";
+        if (off.All(a => fallback.Contains(a.RunnerType))) return "Ran on a fallback runner";
+        return "Differs from current configuration";
+    }
+
+    public void Dispose() { Session.Changed -= OnSession; _cts?.Cancel(); }
+}

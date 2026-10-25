@@ -41,6 +41,9 @@ public static class GitHubOperations
     public const string JobLogBlob = "job_log.blob";
     public const string FileGet = "file.get";
     public const string RateLimitGet = "rate_limit.get";
+    public const string JobAttemptsList = "job_attempts.list";
+    public const string VariablesList = "variables.list";
+    public const string BillingUsageGet = "billing_usage.get";
 }
 
 /// <summary>Instruments of the GitHub integration (one instance per process; registered as a singleton).</summary>

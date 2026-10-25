@@ -1,0 +1,168 @@
+@using CIWorkbench.Core.Runners
+@implements IDisposable
+@inject RunnerInsightsData Runners
+@inject OverviewData Overview
+@inject CiwRoutes Routes
+@inject TimeProvider Time
+
+@* Overview "Runner usage". Quality (Verified / Estimated), completeness (Partial / Complete) and permission state are separate dimensions and
+   are never folded into one badge. Methodology lives in tooltips and in Settings; cards only carry numbers. *@
+<section class="ov-section ru" aria-label="Runner usage" data-testid="runner-usage" aria-busy="@(Runners.IsMeasuring ? "true" : "false")">
+    <h2 class="section-title">Runner usage <span class="ciw-muted ov-count">@PeriodLabel@(Report.Providers.Count > 0 ? $" · {Report.Providers.Count} {(Report.Providers.Count == 1 ? "provider" : "providers")}" : "")</span></h2>
+
+    @if (Report.Providers.Count == 0)
+    {
+        <div class="ciw-empty slim" data-testid="ru-empty" role="status">
+            @if (Runners.IsMeasuring) { <progress aria-label="Measuring runner usage"></progress> <span>Collecting finished jobs…</span> }
+            else if (Runners.State == RunnerScanState.WaitingForOverview || Overview.Busy) { <span>Runner usage starts once the repositories above have been checked.</span> }
+            else if (Runners.State == RunnerScanState.Done) { <span>No finished jobs in the current billing period for the runs checked yet.</span> }
+            else { <span>Runner usage appears after the repositories have been checked.</span> }
+        </div>
+    }
+    else
+    {
+        var cov = Report.Coverage; var partial = cov.Overall == Coverage.Partial;
+        <div class="ru-meta" data-testid="ru-meta">
+            <span class="pill @(partial ? "warn" : "ver")" data-testid="ru-coverage" title="@CoverageTitle">@(partial ? "Partial" : "Complete")</span>
+            <span class="ciw-muted">@cov.RunsMeasured of @cov.RunsEligible runs collected@(cov.RepositoriesInScope > cov.RepositoriesMeasured ? $" · {cov.RepositoriesMeasured} of {cov.RepositoriesInScope} repositories" : "")</span>
+            <span class="ciw-muted" title="@Report.UpdatedAt.ToString("u")">Updated @Fmt.Ago(Report.UpdatedAt, Time.GetUtcNow())</span>
+            <span class="ru-actions">
+                @if (Runners.IsMeasuring) { <progress aria-label="Collecting"></progress> }
+                else
+                {
+                    @if (Runners.PendingRuns > 0 && !Overview.Busy) { <button type="button" class="ciw-btn sm" @onclick="Runners.CollectRemaining" data-action="collect-remaining">Collect remaining (@Runners.PendingRuns)</button> }
+                    <button type="button" class="ciw-btn sm" @onclick="Runners.Refresh" data-action="refresh-runners">Refresh</button>
+                }
+            </span>
+        </div>
+        @if (partial && cov.RunsEligible > 0) { <progress class="ru-collect" max="@cov.RunsEligible" value="@cov.RunsMeasured" aria-label="Collection progress"></progress> }
+        @if (Runners.Note is { } note) { <div class="ciw-notice warn" role="status">@note</div> }
+
+        <div class="ru-grid" data-testid="ru-grid">
+            @foreach (var p in Report.Providers)
+            {
+                var github = p.Provider.Id == RunnerCatalog.GitHub;
+                <article class="ru-card @(github ? "wide" : "")" data-provider="@p.Provider.Id" data-quality="@(p.Pools.Count > 0 && p.Pools.All(x => x.BillingVerified) ? "ver" : "est")">
+                    <header class="ru-head">
+                        <strong title="@p.Provider.Note">@p.Provider.Name</strong>
+                        @if (!github)
+                        {
+                            <span class="ru-pills">
+                                <span class="pill est" title="@RunnerFmt.QualityTitle(DataQuality.Estimated)">Estimated</span>
+                                @if (!p.Complete) { <span class="pill warn" title="Only part of this period has been collected, so this is a lower bound.">Partial</span> }
+                            </span>
+                        }
+                    </header>
+
+                    @foreach (var pool in Shown(p)) { @PoolView(p, pool, github) }
+                    @if (p.Pools.Count > Shown(p).Count)
+                    {
+                        <details class="ru-morepools" data-testid="ru-more-accounts">
+                            <summary>+ @(p.Pools.Count - Shown(p).Count) more @(p.Pools.Count - Shown(p).Count == 1 ? "account" : "accounts")</summary>
+                            @foreach (var pool in p.Pools.Except(Shown(p))) { @PoolView(p, pool, github) }
+                        </details>
+                    }
+
+                    <div class="ru-foot">
+                        <span class="ru-types">
+                            @foreach (var t in p.RunnerTypes.Take(2)) { <code title="@t.Jobs jobs · @RunnerFmt.Amount(t.Units, p.Unit)">@t.RunnerType</code> }
+                            @if (p.RunnerTypes.Count > 2) { <span class="ciw-muted" title="@string.Join(", ", p.RunnerTypes.Skip(2).Select(t => t.RunnerType))">+@(p.RunnerTypes.Count - 2)</span> }
+                        </span>
+                        <span class="ru-repos">
+                            @foreach (var r in p.Repos.Take(2)) { <a href="@Routes.Repository(r.Repo)#runners" title="@r.Repo.FullName: @r.Jobs jobs · @RunnerFmt.Amount(r.Units, p.Unit)">@r.Repo.Name</a> }
+                            @if (p.Repos.Count > 2) { <span class="ciw-muted">+@(p.Repos.Count - 2)</span> }
+                        </span>
+                    </div>
+                </article>
+            }
+        </div>
+        @if (RunnerFmt.Excluded(Report.Excluded) is { Length: > 0 } ex) { <p class="ru-fine ciw-muted">Not counted: @ex.</p> }
+    }
+    <p class="ru-more"><a href="settings#runner-insights" data-testid="ru-details-link">Allowances, billing status and data collection →</a></p>
+</section>
+
+@code {
+    private RunnerUsageReport Report => Runners.Report;
+
+    private const int MaxInlineAccounts = 3;
+
+    /// <summary>The busiest accounts stay visible; quiet ones fold away so one large organization list cannot push everything else off screen.</summary>
+    private static IReadOnlyList<PoolUsage> Shown(ProviderUsage p) =>
+        p.Pools.Count <= MaxInlineAccounts ? p.Pools
+        : p.Pools.OrderByDescending(x => x.Jobs + (x.Billing?.BilledMinutes() ?? 0)).ThenBy(x => x.Pool, StringComparer.OrdinalIgnoreCase).Take(MaxInlineAccounts).ToList();
+
+    private RenderFragment PoolView(ProviderUsage p, PoolUsage pool, bool github) => @<div class="ru-pool" data-pool="@pool.Pool">
+                                @if (github) { <div class="ru-pool-name" title="GitHub's included minutes and billing are shared by every repository of this account.">@pool.Pool <span class="ciw-muted">· shared account quota</span></div> }
+                                <div class="ru-cols @(github ? "two" : "")">
+                                    @if (github)
+                                    {
+                                        <div class="ru-block" data-testid="ru-billing-block">
+                                            <div class="ru-label">Organization billing @BillingPill(pool)</div>
+                                            @if (pool.BillingVerified)
+                                            {
+                                                var b = pool.Billing!;
+                                                <div class="ru-value" data-testid="ru-verified">@Num(b.BilledMinutes()) <small>min billed</small></div>
+                                                <div class="ru-sub ciw-muted" title="Gross quantity from GitHub's usage report. Discounts cover free minutes; net is what GitHub charged.">discount $@Money(b.Lines.Sum(l => l.DiscountAmount)) · net $@Money(b.Lines.Sum(l => l.NetAmount))</div>
+                                                @if (pool.FreeAllowanceExhaustedVerified) { <span class="pill bad" title="GitHub is charging for standard minutes on this account.">Free minutes used up</span> }
+                                            }
+                                            else { <div class="ru-value muted">—</div><div class="ru-sub ciw-muted" data-testid="ru-billing-unavailable">@BillingHint(pool)</div> }
+                                        </div>
+                                    }
+                                    <div class="ru-block" data-testid="@(github ? "ru-observed-block" : "ru-main-block")">
+                                        @if (github) { <div class="ru-label">Observed workflow usage <span class="pill est" title="@RunnerFmt.QualityTitle(DataQuality.Estimated)">Estimated</span>@if (pool.Coverage.Overall == Coverage.Partial) {<span class="pill warn" title="Only part of this period has been collected.">Partial</span>}</div> }
+                                        <div class="ru-value" title="@(pool.Coverage.Overall == Coverage.Partial ? "Measured so far: a lower bound until collection completes." : "")">@(pool.Coverage.Overall == Coverage.Partial ? "≥ " : "")@RunnerFmt.Amount(pool.Observed, p.Unit)</div>
+                                        <div class="ru-sub ciw-muted">@pool.Jobs @(pool.Jobs == 1 ? "job" : "jobs")@(github ? "" : $" · {p.Period.Label}")@(p.Provider.Kind == RunnerProviderKind.SelfHosted ? " · cost not tracked" : "")</div>
+                                    </div>
+                                </div>
+                                @Allowance(p, pool)
+                            </div>;
+
+
+    private static string Num(double v) => v.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
+    private static string Money(double v) => v.ToString("N2", System.Globalization.CultureInfo.InvariantCulture);
+
+    private string PeriodLabel =>
+        Report.Providers.Select(p => p.Period).Distinct().ToList() is { Count: 1 } one ? one[0].Label
+        : Report.Providers.Count > 1 ? "current billing periods" : BillingPeriod.For(Time.GetUtcNow()).Label;
+
+    private string CoverageTitle =>
+        $"{Report.Coverage.RunsMeasured} of {Report.Coverage.RunsEligible} finished runs of the period have been collected" +
+        (Report.Coverage.RunWindowTruncated ? "; GitHub lists at most 1,000 runs per query, so more exist than could be listed" : "") +
+        (Report.Coverage.RepositoriesFailed > 0 ? $"; {Report.Coverage.RepositoriesFailed} repositories could not be read" : "") + ". Until complete, usage is shown as a lower bound and no remaining allowance is derived from it.";
+
+    private RenderFragment BillingPill(PoolUsage pool) => pool.BillingVerified
+        ? @<span class="pill ver" title="@RunnerFmt.QualityTitle(DataQuality.Verified)">Verified</span>
+        : pool.Billing?.Access == BillingAccess.PermissionMissing ? @<span class="pill warn">Missing permission</span> : @<span class="pill na">Unavailable</span>;
+
+    private static string BillingHint(PoolUsage pool) => pool.Billing?.Access switch
+    {
+        BillingAccess.PermissionMissing => "Billing needs Administration: Read (org) or Plan: Read (user).",
+        BillingAccess.NotAvailable => "No billing report for this account.",
+        null => "Billing not checked.",
+        _ => "Billing could not be read.",
+    };
+
+    /// <summary>Allowance line: remaining only when it can be derived; otherwise "Allowance unknown" or why remaining is withheld.</summary>
+    private RenderFragment Allowance(ProviderUsage p, PoolUsage pool) => @<div class="ru-allow" data-testid="ru-allowance">
+        @if (pool.Allowance.Fraction is { } f)
+        {
+            <progress class="@(pool.Allowance.Exhausted ? "bad" : f > .85 ? "warn" : "")" max="1" value="@f.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)" aria-label="@p.Provider.Name allowance used"></progress>
+        }
+        @if (pool.Allowance.Remaining is not null)
+        {
+            <span title="@pool.Allowance.Explanation">@RunnerFmt.AllowanceLine(pool.Allowance) <em class="ru-est">estimated</em></span>
+        }
+        else if (pool.Allowance.AtLeast)
+        {
+            <span class="ciw-muted" title="@pool.Allowance.Explanation">@(pool.Allowance.Amount is { } a && pool.Allowance.Unit is { } u ? $"of {RunnerFmt.Amount(a, u)} · " : "")remaining unknown until collection completes</span>
+        }
+        else
+        {
+            <span class="ciw-muted" title="@pool.Allowance.Explanation">@(pool.Allowance.Kind == AllowanceKind.None ? (p.Provider.CostTracked ? "Allowance unknown" : "No allowance (self-managed)") : pool.Allowance.Kind == AllowanceKind.Unlimited ? "No cap" : "Remaining unavailable")</span>
+        }
+    </div>;
+
+    protected override void OnInitialized() { Runners.Changed += OnChanged; Runners.Attach(); }
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Runners.Changed -= OnChanged;
+}

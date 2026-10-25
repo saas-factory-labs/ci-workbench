@@ -153,6 +153,10 @@ public sealed class SwitchableCiProvider(AppSession session) : ICiProvider
     public Task<IReadOnlyList<WorkflowRunInfo>> ListWorkflowRunsAsync(RepoRef repo, long workflowId, int max, CancellationToken ct) => P.ListWorkflowRunsAsync(repo, workflowId, max, ct);
     public Task<WorkflowRunInfo?> GetRunAsync(RepoRef repo, long runId, CancellationToken ct) => P.GetRunAsync(repo, runId, ct);
     public Task<IReadOnlyList<JobInfo>> ListJobsAsync(RepoRef repo, long runId, CancellationToken ct) => P.ListJobsAsync(repo, runId, ct);
+    public Task<RunPeriod> ListRunsSinceAsync(RepoRef repo, DateTimeOffset since, int maxRuns, CancellationToken ct) => P.ListRunsSinceAsync(repo, since, maxRuns, ct);
+    public Task<IReadOnlyList<JobInfo>> ListJobAttemptsAsync(RepoRef repo, long runId, CancellationToken ct) => P.ListJobAttemptsAsync(repo, runId, ct);
+    public Task<ActionsVariables> GetActionsVariablesAsync(RepoRef repo, CancellationToken ct) => P.GetActionsVariablesAsync(repo, ct);
+    public Task<BillingUsage> GetBillingUsageAsync(string owner, string? ownerType, int year, int month, CancellationToken ct) => P.GetBillingUsageAsync(owner, ownerType, year, month, ct);
     public Task<string?> GetJobLogTailAsync(RepoRef repo, long jobId, int maxBytes, CancellationToken ct) => P.GetJobLogTailAsync(repo, jobId, maxBytes, ct);
     public Task<string?> GetFileAsync(RepoRef repo, string path, CancellationToken ct) => P.GetFileAsync(repo, path, ct);
     public Task<RateLimitInfo?> GetRateLimitAsync(CancellationToken ct) => P.GetRateLimitAsync(ct);

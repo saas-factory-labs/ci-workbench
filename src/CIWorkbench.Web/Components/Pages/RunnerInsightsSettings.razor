@@ -1,0 +1,231 @@
+@using CIWorkbench.Core.Runners
+@implements IDisposable
+@inject RunnerInsightsData Runners
+@inject AppSession Session
+@inject OverviewData Overview
+@inject TimeProvider Time
+
+<section class="card ri-wide" id="runner-insights" data-testid="runner-insights-settings" aria-busy="@(Runners.IsMeasuring ? "true" : "false")">
+    <h2>Runner Insights</h2>
+    <p class="ciw-muted ri-lede">Usage per runner provider. Works with the Actions read access you already granted; billing and variables permissions are optional upgrades. Read-only: nothing is ever written to GitHub.</p>
+
+    @* ---- 1. providers and API status ---- *@
+    <details class="ri-sec" open data-testid="ri-sec-providers">
+        <summary>Connected providers and API status</summary>
+        @if (Report.Providers.Count == 0) { <p class="ciw-muted" data-testid="ri-no-providers">No provider detected yet. Providers appear when a finished job of the current billing period used them.</p> }
+        else
+        {
+            <ul class="ri-list" data-testid="ri-providers">
+                @foreach (var p in Report.Providers)
+                {
+                    <li data-provider="@p.Provider.Id">
+                        <strong title="@p.Provider.Note">@p.Provider.Name</strong>
+                        <span class="pill est" title="@RunnerFmt.QualityTitle(DataQuality.Estimated)">Estimated</span>
+                        @if (!p.Complete) { <span class="pill warn" title="Collection of this period is incomplete.">Partial</span> }
+                        <span class="ciw-muted">@(p.Complete ? "" : "≥ ")@RunnerFmt.Amount(p.Observed, p.Unit) · @p.Jobs jobs</span>
+                    </li>
+                }
+            </ul>
+        }
+        <h3 class="ob-h">GitHub billing API</h3>
+        @if (!Runners.Options.BillingEnabled) { <p class="ciw-muted">Disabled (<code>RunnerInsights:BillingEnabled=false</code>); GitHub usage is estimated.</p> }
+        else if (Report.BillingByOwner.Count == 0) { <p class="ciw-muted" data-testid="ri-billing-none">Not checked yet.</p> }
+        else
+        {
+            <ul class="ri-list" data-testid="ri-billing">
+                @foreach (var (owner, b) in Report.BillingByOwner.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
+                {
+                    <li data-owner="@owner" data-access="@b.Access.ToString().ToLowerInvariant()">
+                        <strong>@owner</strong>
+                        <span class="pill @(b.IsAvailable ? "ver" : b.Access == BillingAccess.PermissionMissing ? "warn" : "na")">@(b.IsAvailable ? "Verified" : b.Access == BillingAccess.PermissionMissing ? "Missing permission" : "Unavailable")</span>
+                        <span class="ciw-muted">@(b.IsAvailable ? $"{b.Lines.Count} Actions usage lines for {b.Year}-{b.Month:00}" : b.Reason)</span>
+                    </li>
+                }
+            </ul>
+        }
+    </details>
+
+    @* ---- 2. allowances ---- *@
+    <details class="ri-sec" open data-testid="ri-sec-allowances">
+        <summary>Provider allowances</summary>
+        <p class="ciw-muted ri-note">State what your plan includes. Nothing is assumed: suggestions only pre-fill the form, and remaining amounts are withheld until collection is complete. Saved on this server, not in the browser.</p>
+        @if (!Runners.CanEditPlans) { <div class="ciw-notice info" role="status">Connect GitHub (live mode) to save allowances; demo allowances can be edited for this session.</div> }
+        <div class="ov-list" role="list" data-testid="ri-quotas">
+            @foreach (var row in Runners.PlanRows())
+            {
+                var editing = _editKey == row.Key;
+                <div class="ri-quota @(editing ? "open" : "")" role="listitem" data-provider="@row.Provider.Id" data-plan="@row.Key" data-source="@row.Source.ToString().ToLowerInvariant()">
+                    <span class="ov-name"><strong>@row.Title</strong><small class="ciw-muted">measured in @row.Provider.Unit.Label()</small></span>
+                    <span class="ri-summary">
+                        @Summary(row)
+                        @if (row.Source == PlanSource.Server) { <span class="pill est" title="Set by RunnerInsights:Providers in server configuration; it overrides anything saved here.">Server config</span> }
+                        else if (row.Source == PlanSource.Saved) { <span class="pill ver" title="Saved on this server.">Saved</span> }
+                    </span>
+                    <span class="ri-btns">
+                        @if (row.Source != PlanSource.Server && Runners.CanEditPlans) { <button type="button" class="ciw-btn sm" @onclick="() => StartEdit(row)" aria-expanded="@(editing ? "true" : "false")" data-action="edit-plan">@(editing ? "Editing" : row.Plan is null ? "Set" : "Edit")</button> }
+                        @if (row.Source == PlanSource.Saved) { <button type="button" class="ciw-btn sm" @onclick="() => ResetPlan(row)" data-action="reset-plan">Reset</button> }
+                    </span>
+                    @if (editing) { @Editor(row) }
+                </div>
+            }
+        </div>
+    </details>
+
+    @* ---- 3. data collection ---- *@
+    <details class="ri-sec" open data-testid="ri-sec-collection">
+        <summary>Data collection and completeness</summary>
+        <div class="ru-meta" data-testid="ri-status">
+            @switch (Runners.State)
+            {
+                case RunnerScanState.Measuring: <progress aria-label="Collecting"></progress> <span>Collecting finished jobs…</span> break;
+                case RunnerScanState.WaitingForOverview: <span class="ciw-muted">Waiting for the Overview scan to finish.</span> break;
+                case RunnerScanState.Done:
+                    <span class="pill @(Report.Coverage.Overall == Coverage.Partial ? "warn" : "ver")">@(Report.Coverage.Overall == Coverage.Partial ? "Partial" : "Complete")</span>
+                    <span class="ciw-muted">@Report.Coverage.RunsMeasured of @Report.Coverage.RunsEligible runs collected · @Report.Coverage.RepositoriesMeasured of @Report.Coverage.RepositoriesInScope repositories · updated @Fmt.Ago(Report.UpdatedAt, Time.GetUtcNow())</span>
+                    break;
+                default: <span class="ciw-muted">Nothing collected yet. Open the Overview so repositories are checked first.</span> break;
+            }
+        </div>
+        @if (Report.Coverage.RunsEligible > 0) { <progress class="ru-collect" max="@Report.Coverage.RunsEligible" value="@Report.Coverage.RunsMeasured" aria-label="Collection progress"></progress> }
+        @if (Runners.Note is { } note) { <div class="ciw-notice warn" role="status">@note</div> }
+        <div class="ri-btns">
+            <button type="button" class="ciw-btn sm" @onclick="Runners.Refresh" disabled="@(Runners.IsMeasuring || Session.Repositories.Count == 0)" data-action="refresh-runner-insights">Refresh</button>
+            @if (Runners.PendingRuns > 0) { <button type="button" class="ciw-btn sm" @onclick="Runners.CollectRemaining" disabled="@(Runners.IsMeasuring || Overview.Busy)" data-action="collect-remaining">Collect remaining (@Runners.PendingRuns runs)</button> }
+            @if (Overview.Snapshots().Count == 0 && Session.Repositories.Count > 0) { <a href="overview" class="ciw-muted">Open the Overview to load runs →</a> }
+        </div>
+        <p class="ciw-muted ru-fine">Automatic passes fetch up to @Runners.Options.MaxJobRequestsPerRefresh job requests, an explicit collection up to @Runners.Options.MaxJobRequestsPerCollect, and both pause at a reserve of @Runners.Options.RateLimitReserve GitHub API requests. Collected jobs are kept, so every pass resumes where the last one stopped.@(RunnerFmt.Excluded(Report.Excluded) is { Length: > 0 } ex ? $" Not counted: {ex}." : "")</p>
+    </details>
+
+    @* ---- 4. advanced ---- *@
+    <details class="ri-sec" data-testid="ri-sec-advanced">
+        <summary>Advanced details and permissions</summary>
+        <ul class="ob-perms">
+            <li><strong>Estimated usage</strong> <span class="ob-level">required</span> <span>Actions: Read-only (already needed). Job history gives runner labels and run times.</span></li>
+            <li><strong>Configured runners</strong> <span class="ob-level">optional</span> <span>Contents: Read-only for workflow files; Variables: Read-only (repository and organization) to resolve <code>vars.*</code> in <code>runs-on</code>.</span></li>
+            <li><strong>Verified GitHub billing</strong> <span class="ob-level">optional</span> <span>Organization permission <em>Administration: Read-only</em> (organization owner or billing manager) or user permission <em>Plan: Read-only</em>; endpoint <code>GET /organizations/{org}/settings/billing/usage</code>.</span></li>
+        </ul>
+        <p class="ru-fine ciw-muted">GitHub's billing API reports usage, discounts and charges, not the plan's included minutes. Remaining is therefore only shown against an allowance you state, and only from complete data (the official report covers the whole account; observed jobs cover only what has been collected). A net charge proves the free minutes are used up; a zero-dollar bill proves nothing about what is left.</p>
+        <p class="ru-fine ciw-muted">Server configuration (overrides saved allowances), for example:</p>
+        <pre class="ri-code"><code>RunnerInsights__Providers__github.my-org__Allowance=MonthlyIncluded
+RunnerInsights__Providers__github.my-org__AllowanceAmount=3000
+RunnerInsights__Providers__tenki__Allowance=OneTimeCredit
+RunnerInsights__DataDirectory=/data     # where Settings saves allowances</code></pre>
+    </details>
+</section>
+
+@code {
+    private sealed class Form
+    {
+        public AllowanceKind Kind { get; set; }
+        public double? Amount { get; set; }
+        public bool Usd { get; set; }
+        public double? Rate { get; set; }
+        public int Cycle { get; set; } = 1;
+        public bool Confirmed { get; set; }
+        public double? Balance { get; set; }
+        public DateTime? BalanceAsOf { get; set; }
+        public string? Note { get; set; }
+    }
+
+    private RunnerUsageReport Report => Runners.Report;
+    private string? _editKey;
+    private Form _form = new();
+    private IReadOnlyList<string> _errors = [];
+
+    private void StartEdit(PlanRow row)
+    {
+        _editKey = row.Key; _errors = [];
+        var p = row.Plan;
+        _form = new Form
+        {
+            Kind = p?.Allowance ?? AllowanceKind.None, Amount = p?.AllowanceAmount, Usd = p?.AllowanceUnit == UsageUnit.UsdCredits, Rate = p?.RatePerUnit,
+            Cycle = p?.CycleStartDay ?? 1, Confirmed = p?.Confirmed ?? false, Balance = p?.BalanceAmount, BalanceAsOf = p?.BalanceAsOf?.UtcDateTime, Note = p?.Note,
+        };
+    }
+
+    private void Apply(PlanSuggestion s)
+    {
+        _form.Kind = s.Kind; _form.Amount = s.Amount; _form.Usd = s.Unit == UsageUnit.UsdCredits; _form.Confirmed = false;     // a suggestion is never a confirmed entitlement
+    }
+
+    private void Save(PlanRow row)
+    {
+        var plan = new ProviderPlanOptions
+        {
+            Allowance = _form.Kind,
+            AllowanceAmount = _form.Kind == AllowanceKind.MonthlyIncluded ? _form.Amount : null,
+            AllowanceUnit = _form.Kind is AllowanceKind.None or AllowanceKind.Unlimited ? null : _form.Usd ? UsageUnit.UsdCredits : row.Provider.Unit,
+            RatePerUnit = _form.Usd ? _form.Rate : null,
+            CycleStartDay = row.Provider.Id == RunnerCatalog.GitHub ? 1 : _form.Cycle,
+            Confirmed = _form.Confirmed,
+            BalanceAmount = _form.Kind is AllowanceKind.OneTimeCredit or AllowanceKind.Prepaid ? _form.Balance : null,
+            BalanceAsOf = _form.Kind is AllowanceKind.OneTimeCredit or AllowanceKind.Prepaid && _form.BalanceAsOf is { } at ? new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc)) : null,
+            Note = string.IsNullOrWhiteSpace(_form.Note) ? null : _form.Note.Trim(),
+        };
+        _errors = Runners.SavePlan(row.Key, plan);
+        if (_errors.Count == 0) _editKey = null;
+    }
+
+    private void ResetPlan(PlanRow row) { Runners.ResetPlan(row.Key); if (_editKey == row.Key) _editKey = null; }
+
+    private RenderFragment Summary(PlanRow row) => @<span data-testid="ri-plan-summary">
+        @if (row.Plan is null || row.Plan.Allowance == AllowanceKind.None) { <span class="ciw-muted">@(row.Provider.CostTracked ? "Allowance unknown" : "No allowance (self-managed)")</span> }
+        else
+        {
+            <span>@RunnerFmt.Kind(row.Plan.Allowance)@(row.Plan.AllowanceAmount is { } a ? $" · {RunnerFmt.Amount(a, row.Plan.AllowanceUnit ?? row.Provider.Unit)}" : "")@(row.Plan.BalanceAmount is { } b ? $" · balance {RunnerFmt.Amount(b, row.Plan.AllowanceUnit ?? row.Provider.Unit)} as of {row.Plan.BalanceAsOf:d MMM}" : "")@(row.Plan.CycleStartDay > 1 && row.Provider.Id != RunnerCatalog.GitHub ? $" · cycle day {row.Plan.CycleStartDay}" : "")</span>
+            <span class="pill @(row.Plan.Confirmed ? "ver" : "est")" title="@(row.Plan.Confirmed ? "You confirmed these numbers match your plan." : "Assumption: not confirmed against the provider's current plan.")">@(row.Plan.Confirmed ? "Confirmed" : "Unconfirmed")</span>
+        }
+    </span>;
+
+    private RenderFragment Editor(PlanRow row) => @<form class="ri-editor" @onsubmit="() => Save(row)" @onsubmit:preventDefault data-testid="ri-editor">
+        @if (PlanSuggestions.Caution(row.Provider.Id) is { } caution) { <p class="ru-fine ciw-muted">@caution</p> }
+        @if (row.Suggestions.Count > 0)
+        {
+            <div class="ri-suggest" data-testid="ri-suggestions"><span class="ciw-muted">Suggestions (not verified for your account):</span>
+                @foreach (var s in row.Suggestions) { <button type="button" class="ciw-btn sm" @onclick="() => Apply(s)" title="@s.Source">@s.Label · @RunnerFmt.Amount(s.Amount, s.Unit)</button> }
+            </div>
+        }
+        <div class="ri-fields">
+            <label>Type
+                <select @bind="_form.Kind" data-field="kind">
+                    <option value="@AllowanceKind.None">None / unknown</option>
+                    <option value="@AllowanceKind.MonthlyIncluded">Monthly recurring allowance</option>
+                    <option value="@AllowanceKind.OneTimeCredit">One-time promotional credit</option>
+                    <option value="@AllowanceKind.Prepaid">Prepaid balance</option>
+                    <option value="@AllowanceKind.Unlimited">Unlimited / no cap</option>
+                </select>
+            </label>
+            @if (_form.Kind == AllowanceKind.MonthlyIncluded)
+            {
+                <label>Included per month <input type="number" step="any" min="0" @bind="_form.Amount" data-field="amount" /></label>
+            }
+            @if (_form.Kind is AllowanceKind.MonthlyIncluded or AllowanceKind.OneTimeCredit or AllowanceKind.Prepaid)
+            {
+                <label class="ri-check"><input type="checkbox" @bind="_form.Usd" data-field="usd" /> Amounts are USD credits</label>
+                @if (_form.Usd) { <label>USD per @row.Provider.Unit.Label() <input type="number" step="any" min="0" @bind="_form.Rate" data-field="rate" /></label> }
+            }
+            @if (_form.Kind is AllowanceKind.OneTimeCredit or AllowanceKind.Prepaid)
+            {
+                <label>Current balance <input type="number" step="any" min="0" @bind="_form.Balance" data-field="balance" /></label>
+                <label>Read on (UTC) <input type="datetime-local" @bind="_form.BalanceAsOf" @bind:format="yyyy-MM-ddTHH:mm" data-field="asof" /></label>
+                <button type="button" class="ciw-btn sm" @onclick="() => _form.BalanceAsOf = DateTime.SpecifyKind(Time.GetUtcNow().UtcDateTime, DateTimeKind.Unspecified)">Now</button>
+            }
+            @if (row.Provider.Id != RunnerCatalog.GitHub && _form.Kind != AllowanceKind.None)
+            {
+                <label>Cycle restarts on day <input type="number" min="1" max="28" @bind="_form.Cycle" data-field="cycle" /></label>
+            }
+            <label class="ri-check"><input type="checkbox" @bind="_form.Confirmed" data-field="confirmed" /> I checked this against my account</label>
+            <label>Note <input type="text" maxlength="200" @bind="_form.Note" /></label>
+        </div>
+        @if (_errors.Count > 0) { <ul class="ri-errors" role="alert" data-testid="ri-errors">@foreach (var e in _errors) { <li>@e</li> }</ul> }
+        <div class="ri-btns"><button type="submit" class="ciw-btn" data-action="save-plan">Save</button> <button type="button" class="ciw-btn" @onclick="() => _editKey = null">Cancel</button></div>
+    </form>;
+
+    protected override void OnInitialized() { Runners.Changed += OnChanged; Overview.Changed += OnChanged; }
+
+    // Attach after the previous page has been disposed, so leaving the Overview cannot detach this page's scan.
+    protected override void OnAfterRender(bool firstRender) { if (firstRender) { Overview.Attach(); Runners.Attach(); } }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() { Runners.Changed -= OnChanged; Overview.Changed -= OnChanged; }
+}
