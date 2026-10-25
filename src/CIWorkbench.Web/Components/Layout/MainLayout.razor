@@ -8,7 +8,8 @@
 @inject TimeProvider Time
 @inject IJSRuntime JS
 
-<div class="ciw-root shell" data-ciw-density="@(Prefs.Density == Density.Compact ? "compact" : "comfortable")" data-inspector="@(Prefs.InspectorOpen ? "open" : "closed")" data-sidebar="@(_sidebarCollapsed ? "collapsed" : "auto")">
+<div class="ciw-root shell" data-ciw-density="@(Prefs.Density == Density.Compact ? "compact" : "comfortable")" data-inspector="@(InspectorVisible ? "open" : "closed")"
+     data-sidebar="@(_sidebarCollapsed ? "collapsed" : "auto")" data-nav="@(_navOpen ? "open" : "closed")" data-search="@(_searchOpen ? "open" : "closed")" data-more="@(_moreOpen ? "open" : "closed")">
     @if (Session.Mode == DataMode.Demo)
     {
         <div class="demo-banner" role="status" data-testid="demo-banner">
@@ -23,62 +24,60 @@
     }
 
     <header class="topbar">
-        <button type="button" class="hamburger" @onclick="ToggleSidebar" aria-label="@(_sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar")" aria-expanded="@(_sidebarCollapsed ? "false" : "true")" title="@(_sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar")" data-testid="sidebar-toggle"><Icon Name="menu" Size="20" /></button>
+        <button type="button" class="hamburger" @onclick="ToggleNavAsync" aria-label="@NavToggleLabel" aria-expanded="@(NavExpanded ? "true" : "false")" aria-controls="main-nav" title="@NavToggleLabel" data-testid="sidebar-toggle"><Icon Name="menu" Size="20" /></button>
         <a class="brand" href="" aria-label="CIWorkbench home">
             <svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true"><path d="M16 2.5l11.5 6.4v14.2L16 29.5 4.5 23.1V8.9z" fill="#2f6df6"/><path d="M10.5 16.4l4 4 7.2-7.6" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span>CIWorkbench</span>
         </a>
-        <label class="sel"><Icon Name="layers" Size="22" />
+        <label class="sel sel-org"><Icon Name="layers" Size="22" />
             <span class="sel-text"><small>Organization</small>
                 <select aria-label="Organization or account" @onchange="OnOrg">
                     <option value="" selected="@(string.IsNullOrEmpty(Org))">All accounts</option>
                     @foreach (var o in Owners) { <option value="@o" selected="@(o == Org)">@o</option> }
                 </select></span>
         </label>
-        <label class="sel"><Icon Name="repo" Size="22" />
+        <label class="sel sel-repo"><Icon Name="repo" Size="22" />
             <span class="sel-text"><small>Repository</small>
                 <select aria-label="Repository" @onchange="OnRepo" data-testid="repo-select">
                     <option value="" selected="@(Session.Selected is null)">@(Session.Discovery == DiscoveryState.Running ? $"Loading… ({Session.Repositories.Count})" : "Select repository…")</option>
-                    @foreach (var r in ReposInOrg) { <option value="@r.Ref.FullName" selected="@(Session.Selected.Equals(r.Ref))">@(string.IsNullOrEmpty(Org) ? r.Ref.FullName : r.Ref.Name)</option> }
+                    @foreach (var r in ReposInOrg) { <option value="@r.Ref.FullName" selected="@(Session.Selected.Equals(r.Ref))">@(string.IsNullOrEmpty(Org) || _narrow ? r.Ref.FullName : r.Ref.Name)</option> }
                 </select></span>
         </label>
+        <button type="button" class="topbtn search-toggle" @onclick="ToggleSearch" aria-label="@(_searchOpen ? "Close search" : "Search this repository")" aria-expanded="@(_searchOpen ? "true" : "false")" aria-controls="ciw-global-search" disabled="@(Session.Selected is null)" data-testid="search-toggle"><Icon Name="search" Size="20" /></button>
         <div class="global-search">
             <Icon Name="search" Size="18" />
             <input id="ciw-global-search" type="search" placeholder="@SearchPlaceholder" aria-label="Search the active repository" title="Searches the active repository only (same filter as the box in the workspace)" disabled="@(Session.Selected is null)"
-                   value="@Signals.SearchText" @oninput="e => Signals.SetSearch(e.Value?.ToString())" />
+                   value="@Signals.SearchText" @oninput="e => Signals.SetSearch(e.Value?.ToString())" enterkeyhint="search" />
             <kbd>Ctrl K</kbd>
         </div>
-        <div class="top-actions">
+        @if (Inspector.Selection is { } held && !Prefs.InspectorOpen && OnRepoRoute)
+        {
+            <button type="button" class="ciw-btn insp-reopen" @onclick="OpenInspector" aria-label="Open the quick inspector for run #@held.Run.RunNumber" title="Reopen quick inspector" data-testid="inspector-toggle"><Icon Name="panel" Size="16" /> <span class="insp-reopen-label">Inspector</span></button>
+        }
+        <button type="button" class="topbtn more-toggle" @onclick="ToggleMore" aria-label="More actions" aria-expanded="@(_moreOpen ? "true" : "false")" aria-controls="top-actions" data-testid="more-toggle"><Icon Name="more" Size="20" /></button>
+        <div class="top-actions" id="top-actions">
             <button type="button" class="ciw-btn" @onclick="Signals.RequestRefresh" disabled="@(Session.Selected is null)" aria-label="Refresh active repository" title="Refresh (throttled)"><Icon Name="refresh" Size="16" /> Refresh</button>
             <span class="updated ciw-muted" aria-live="polite">@(Signals.IsLoading ? "Refreshing…" : Signals.LastUpdated is null ? "Not loaded" : $"Updated {Fmt.Ago(Signals.LastUpdated, Time.GetUtcNow())}")</span>
             <DensityToggle />
             @if (Session.Mode == DataMode.Demo) { <span class="conn demo" data-testid="connection-status" title="Synthetic data. No credentials are used."><i></i>Demo mode</span> }
             else { <a class="conn @ConnClass" href="settings" data-testid="connection-status" title="Open Settings to verify permissions."><i></i>@ConnLabel</a> }
-            <a class="iconlink" href="settings" aria-label="Settings" title="Settings"><Icon Name="sliders" Size="20" /></a>
+            <a class="iconlink" href="settings" aria-label="Settings" title="Settings"><Icon Name="sliders" Size="20" /><span class="iconlink-label">Settings</span></a>
         </div>
     </header>
 
-    <SideNav Collapsed="_sidebarCollapsed" />
+    <SideNav Collapsed="_sidebarCollapsed" OnClose="CloseOverlays" />
 
     <main class="content" id="main">
         @Body
     </main>
 
-    <aside class="inspector-pane" aria-label="Run inspector panel" data-testid="inspector-pane">
-        <div class="insp-rail">
-            <button type="button" class="insp-toggle" @onclick="() => Prefs.InspectorOpen = !Prefs.InspectorOpen" aria-expanded="@(Prefs.InspectorOpen ? "true" : "false")" aria-controls="inspector-body" data-testid="inspector-toggle"
-                    title="@(Prefs.InspectorOpen ? "Collapse inspector" : "Open inspector")">
-                <Icon Name="@(Prefs.InspectorOpen ? "chevron-right" : "chevron-left")" Size="18" />
-                <Icon Name="panel" Size="18" />
-                <span class="insp-label">Inspector</span>
-            </button>
-        </div>
-        @if (Prefs.InspectorOpen)
-        {
+    @if (InspectorVisible)
+    {
+        <aside class="inspector-pane" aria-label="Run inspector panel" data-testid="inspector-pane">
             <div id="inspector-body" class="insp-body"><RunInspector Selection="Inspector.Selection" OnClose="CloseInspector" OnInspectSimilar="InspectSimilar" /></div>
-        }
-    </aside>
-    @if (Prefs.InspectorOpen) { <div class="scrim" @onclick="() => Prefs.InspectorOpen = false"></div> }
+        </aside>
+    }
+    @if (_navOpen || _moreOpen || (InspectorVisible && !_docked)) { <div class="scrim" @onclick="CloseOverlays" data-testid="scrim"></div> }
 </div>
 
 @code {
@@ -86,11 +85,19 @@
     private Timer? _tick;
     private bool _prefsLoaded;
     private bool _sidebarCollapsed;
-    private bool _wasInspectorOpen;
+    private bool _wasOverlay;
+    private bool _narrow, _docked;
+    private bool _navOpen, _searchOpen, _moreOpen;
     private DotNetObjectReference<MainLayout>? _self;
 
+    private bool InspectorVisible => Prefs.InspectorOpen && Inspector.Selection is not null;
+    private bool OnRepoRoute => new Uri(Nav.Uri).AbsolutePath.StartsWith("/repo", StringComparison.OrdinalIgnoreCase);
+    /// <summary>On a phone the hamburger opens the drawer; elsewhere it collapses the sidebar to icons.</summary>
+    private bool NavExpanded => _narrow ? _navOpen : !_sidebarCollapsed;
+    private string NavToggleLabel => _narrow ? (_navOpen ? "Close navigation" : "Open navigation") : (_sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar");
+
     private IEnumerable<string> Owners => Session.Repositories.Select(r => r.Ref.Owner).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase);
-    private IEnumerable<RepositoryInfo> ReposInOrg => Session.Repositories.Where(r => string.IsNullOrEmpty(Org) || r.Ref.Owner.Equals(Org, StringComparison.OrdinalIgnoreCase)).OrderBy(r => r.Ref.FullName, StringComparer.OrdinalIgnoreCase).Take(500);
+    private IEnumerable<RepositoryInfo> ReposInOrg => Session.Repositories.Where(r => _narrow || string.IsNullOrEmpty(Org) || r.Ref.Owner.Equals(Org, StringComparison.OrdinalIgnoreCase)).OrderBy(r => r.Ref.FullName, StringComparer.OrdinalIgnoreCase).Take(500);
 
     private string SearchPlaceholder => Session.Selected is { } s ? $"Search in {s.Name}: workflows, runs, branches…" : "Open a repository to search its workflows and runs";
     private string ConnClass => Session.Connection is null ? "unknown" : Session.Connection.IsHealthy ? "ok" : "bad";
@@ -138,33 +145,101 @@
     // The inspector is closed by default and opens only when a run is selected; its open state is deliberately not persisted.
     private void OnInspector()
     {
-        if (Inspector.Selection is not null && !Prefs.InspectorOpen) Prefs.InspectorOpen = true;
+        if (Inspector.Selection is not null && !Prefs.InspectorOpen) { _navOpen = false; _moreOpen = false; Prefs.InspectorOpen = true; }
         else if (Inspector.Selection is null && Prefs.InspectorOpen) Prefs.InspectorOpen = false;
         InvokeAsync(StateHasChanged);
     }
 
-    // A run belongs to the page it was selected on: navigating away closes the inspector so it never lingers over another view.
-    private void OnLocation(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => Inspector.Clear();
-
-    private async Task ToggleSidebar()
+    // Navigating closes every overlay (a drawer must never linger over the next page). The selection itself is kept, so coming back can reopen it.
+    private void OnLocation(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
     {
+        _navOpen = false; _moreOpen = false; _searchOpen = false;
+        if (Prefs.InspectorOpen) Prefs.InspectorOpen = false;
+        if (!OnRepoRoute) Inspector.Clear();
+        InvokeAsync(async () => { StateHasChanged(); await SyncOverlayAsync(); });
+    }
+
+    private async Task ToggleNavAsync()
+    {
+        if (_narrow)
+        {
+            _moreOpen = false; _searchOpen = false;
+            if (!_navOpen && Prefs.InspectorOpen) Prefs.InspectorOpen = false;
+            _navOpen = !_navOpen;
+            await SyncOverlayAsync(focusId: _navOpen ? "main-nav" : null);
+            return;
+        }
         _sidebarCollapsed = !_sidebarCollapsed;
         try { await JS.InvokeVoidAsync("ciw.setPref", "sidebar", _sidebarCollapsed ? "collapsed" : "expanded"); }
         catch (JSException) { }
         catch (InvalidOperationException) { }
     }
 
-    /// <summary>Collapsing keeps the selection, so reopening the pane shows the same run.</summary>
+    private async Task ToggleSearch()
+    {
+        _searchOpen = !_searchOpen;
+        if (_searchOpen) { _navOpen = false; _moreOpen = false; await SyncOverlayAsync(); try { await JS.InvokeVoidAsync("ciw.focusById", "ciw-global-search"); } catch (JSException) { } catch (InvalidOperationException) { } }
+    }
+
+    private async Task ToggleMore()
+    {
+        _moreOpen = !_moreOpen;
+        if (_moreOpen) { _navOpen = false; _searchOpen = false; if (Prefs.InspectorOpen) Prefs.InspectorOpen = false; }
+        await SyncOverlayAsync(focusId: _moreOpen ? "top-actions" : null);
+    }
+
+    private void OpenInspector() { _navOpen = false; _moreOpen = false; Prefs.InspectorOpen = true; }
+
+    private async Task CloseOverlays()
+    {
+        _navOpen = false; _moreOpen = false;
+        if (Prefs.InspectorOpen) Prefs.InspectorOpen = false;
+        await SyncOverlayAsync();
+    }
+
+    /// <summary>Keeps focus and background scroll in step with whichever overlay is open (one at a time).</summary>
+    private async Task SyncOverlayAsync(string? focusId = null)
+    {
+        var overlay = _navOpen || _moreOpen || (InspectorVisible && !_docked);
+        try
+        {
+            if (overlay && !_wasOverlay) await JS.InvokeVoidAsync("ciw.rememberFocus");
+            await JS.InvokeVoidAsync("ciw.lockScroll", overlay && _narrow);
+            if (overlay && focusId is not null) await JS.InvokeVoidAsync("ciw.focusFirstIn", focusId);
+            if (!overlay && _wasOverlay) await JS.InvokeVoidAsync("ciw.restoreFocus");
+        }
+        catch (JSException) { }
+        catch (InvalidOperationException) { }
+        _wasOverlay = overlay;
+    }
+
+    /// <summary>Collapsing keeps the selection, so reopening shows the same run.</summary>
     private void CloseInspector() => Prefs.InspectorOpen = false;
 
-    private void InspectSimilar(RunSelection s) => Nav.NavigateTo($"repo/{s.Repo.Owner}/{s.Repo.Name}/failures");
+    private void InspectSimilar(RunSelection s) => Nav.NavigateTo($"repo/{s.Repo.Owner}/{s.Repo.Name}/workflows/{s.Run.WorkflowId}?tab=failures");
 
-    /// <summary>Called by the Esc shortcut in ciworkbench.js (never while typing in a field).</summary>
+    /// <summary>Called by the Esc shortcut in ciworkbench.js (never while typing in a field). Closes the topmost overlay.</summary>
     [JSInvokable]
-    public Task OnEscape()
+    public async Task OnEscape()
     {
-        if (Prefs.InspectorOpen) Prefs.InspectorOpen = false;
-        return Task.CompletedTask;
+        if (_moreOpen || _navOpen || _searchOpen && _narrow || Prefs.InspectorOpen)
+        {
+            _moreOpen = false; _navOpen = false; if (_narrow) _searchOpen = false;
+            if (Prefs.InspectorOpen) Prefs.InspectorOpen = false;
+            await InvokeAsync(StateHasChanged);
+            await SyncOverlayAsync();
+        }
+    }
+
+    /// <summary>Called by ciworkbench.js when the viewport crosses the phone or the docked-inspector breakpoint.</summary>
+    [JSInvokable]
+    public async Task OnViewport(bool narrow, bool docked)
+    {
+        var wasNarrow = _narrow;
+        _narrow = narrow; _docked = docked;
+        if (!narrow) { _navOpen = false; _moreOpen = false; _searchOpen = false; }
+        await InvokeAsync(StateHasChanged);
+        if (wasNarrow != narrow) await SyncOverlayAsync();
     }
 
     private void OnPrefsChanged()
@@ -175,11 +250,7 @@
             if (!_prefsLoaded) return;
             try
             {
-                if (Prefs.InspectorOpen != _wasInspectorOpen)
-                {
-                    _wasInspectorOpen = Prefs.InspectorOpen;
-                    await JS.InvokeVoidAsync(_wasInspectorOpen ? "ciw.rememberFocus" : "ciw.restoreFocus");
-                }
+                await SyncOverlayAsync();
                 await JS.InvokeVoidAsync("ciw.setPref", "density", Prefs.Density == Density.Compact ? "compact" : "comfortable");
                 await JS.InvokeVoidAsync("ciw.setPref", ExpandedKey, System.Text.Json.JsonSerializer.Serialize(Prefs.ExpandedKeys.Where(k => !k.StartsWith("seeded|")).Take(500)));
             }

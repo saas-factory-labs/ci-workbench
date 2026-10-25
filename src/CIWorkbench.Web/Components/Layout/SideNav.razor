@@ -2,7 +2,8 @@
 @inject AppSession Session
 @inject NavigationManager Nav
 
-<nav class="sidebar" aria-label="Main" data-collapsed="@(Collapsed ? "true" : "false")">
+<nav class="sidebar" id="main-nav" aria-label="Main" data-collapsed="@(Collapsed ? "true" : "false")">
+    <div class="drawer-head"><span>Navigation</span><button type="button" class="topbtn" @onclick="() => OnClose.InvokeAsync()" aria-label="Close navigation" data-testid="drawer-close"><Icon Name="x" Size="20" /></button></div>
     <a class="nav @Cls(Section.Overview)" href="overview" aria-current="@Current(Section.Overview)" title="@Tip("Overview")" aria-label="@Aria("Overview")"><Icon Name="home" Size="19" /><span class="nav-label">Overview</span></a>
     <a class="nav @Cls(Section.Repositories)" href="repositories" aria-current="@Current(Section.Repositories)" title="@Tip("Repositories")" aria-label="@Aria("Repositories")"><Icon Name="repo" Size="19" /><span class="nav-label">Repositories</span> <span class="ciw-count">@Session.Repositories.Count@(Session.Discovery == DiscoveryState.Running ? "+" : "")</span></a>
     <a class="nav @Cls(Section.Groups)" href="@GroupsHref" aria-current="@Current(Section.Groups)" title="@Tip("Workflow Groups")" aria-label="@Aria("Workflow Groups")"><Icon Name="layers" Size="19" /><span class="nav-label">Workflow Groups</span></a>
@@ -26,6 +27,8 @@
 
     /// <summary>Icon-only mode: labels stay in the DOM (visually hidden) and every item gets a tooltip.</summary>
     [Parameter] public bool Collapsed { get; set; }
+    /// <summary>Raised by the drawer's close button (phone layout only).</summary>
+    [Parameter] public EventCallback OnClose { get; set; }
 
     private const int MaxRecents = 4;
 
@@ -49,7 +52,7 @@
             if (path.Equals("/overview", StringComparison.OrdinalIgnoreCase)) return Section.Overview;
             if (path.Equals("/repositories", StringComparison.OrdinalIgnoreCase)) return Section.Repositories;
             if (path.Equals("/settings", StringComparison.OrdinalIgnoreCase)) return Section.Settings;
-            if (path.StartsWith("/repo/", StringComparison.OrdinalIgnoreCase)) return path.EndsWith("/failures", StringComparison.OrdinalIgnoreCase) ? Section.Failures : Section.Groups;
+            if (path.StartsWith("/repo/", StringComparison.OrdinalIgnoreCase) || path.StartsWith("/repos/", StringComparison.OrdinalIgnoreCase)) return path.EndsWith("/failures", StringComparison.OrdinalIgnoreCase) ? Section.Failures : Section.Groups;
             return Section.None;
         }
     }

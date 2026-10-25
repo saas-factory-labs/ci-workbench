@@ -39,6 +39,16 @@ builder.Services.Configure<AspNetCoreTraceInstrumentationOptions>(o => o.EnrichW
 builder.Services.Configure<OpenTelemetryLoggerOptions>(o => o.IncludeScopes = false);
 // HttpClient logging prints request URLs at Information level.
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+// Live mode needs a PAT held by this unauthenticated single-user host: never keep it when the host is reachable beyond loopback.
+var remoteReachable = NetworkExposure.IsRemoteReachable(
+    builder.Configuration["urls"] ?? builder.Configuration["ASPNETCORE_URLS"],
+    builder.Configuration["HTTP_PORTS"] ?? builder.Configuration["HTTPS_PORTS"] ?? builder.Configuration["ASPNETCORE_HTTP_PORTS"] ?? builder.Configuration["ASPNETCORE_HTTPS_PORTS"],
+    builder.Configuration.GetSection("Kestrel:Endpoints").GetChildren().Select(e => e["Url"]));
+if (remoteReachable)
+{
+    builder.Services.PostConfigure<GitHubOptions>(o => o.Token = null);
+    Console.WriteLine("CIWorkbench: listening beyond loopback, so Live GitHub mode is disabled and only demo data is served.");
+}
 builder.Services.AddScoped<DemoCiProvider>(sp => new DemoCiProvider(sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddScoped<AppSession>();
 builder.Services.AddScoped<ICiProvider, SwitchableCiProvider>();

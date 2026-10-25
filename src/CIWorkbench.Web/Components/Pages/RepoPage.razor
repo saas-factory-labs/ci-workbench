@@ -39,7 +39,9 @@
     protected override void OnParametersSet()
     {
         var next = new RepoRef(Owner, Name);
-        if (!next.Equals(_repo)) { _repo = next; Inspector.Clear(); Signals.SetSearch(null); Session.Select(next); }
+        _repo = next;
+        // Only a genuine change of repository resets search and the inspector; coming back from a detail page keeps both.
+        if (!Session.Selected.Equals(next)) { Inspector.Clear(); Signals.SetSearch(null); Session.Select(next); }
     }
 
     private void GoFailures() => Nav.NavigateTo($"repo/{Owner}/{Name}/failures");
