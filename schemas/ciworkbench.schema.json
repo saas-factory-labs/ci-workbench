@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/saas-factory-labs/ci-workbench/main/schemas/ciworkbench.schema.json",
-  "title": "CIWorkbench configuration (.ciworkbench.yml)",
+  "title": "CIWorkbench configuration (.github/ciworkbench.yml or legacy .ciworkbench.yml)",
   "description": "Assigns GitHub Actions workflows to collapsible groups in CIWorkbench. Workflows are matched by their file path (never by display name). Precedence: this file, then a '# ci-workbench-group: <name>' comment inside the workflow file, then the 'Ungrouped' group. Semantic checks that need the repository's actual workflows (unmatched paths, a workflow matched by several groups, duplicate group names) cannot be expressed in JSON Schema; CIWorkbench reports them as warnings at run time.",
   "type": "object",
   "additionalProperties": false,

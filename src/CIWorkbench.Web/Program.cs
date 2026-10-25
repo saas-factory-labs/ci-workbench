@@ -21,6 +21,11 @@ builder.AddServiceDefaults(o => o.StandardHttpResilience = false);
 
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 
+// Documentation screenshots only: CIWORKBENCH_DEMO_NOW=<ISO-8601 instant> pins the wall clock so synthetic timestamps ("3 h ago") are reproducible.
+// Registered before the component/GitHub defaults so it wins; timers and delays still use the real system clock.
+if (DateTimeOffset.TryParse(builder.Configuration["CIWORKBENCH_DEMO_NOW"], System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var pinnedNow))
+    builder.Services.AddSingleton<TimeProvider>(new PinnedClock(pinnedNow));
+
 // Reusable UI state + the read-only GitHub provider. The token (GitHub:Token) is read server-side only.
 builder.Services.AddCIWorkbenchComponents();
 builder.Services.AddCIWorkbenchGitHub(builder.Configuration);
@@ -39,6 +44,16 @@ builder.Services.Configure<AspNetCoreTraceInstrumentationOptions>(o => o.EnrichW
 builder.Services.Configure<OpenTelemetryLoggerOptions>(o => o.IncludeScopes = false);
 // HttpClient logging prints request URLs at Information level.
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+// Live mode needs a PAT held by this unauthenticated single-user host: never keep it when the host is reachable beyond loopback.
+var remoteReachable = NetworkExposure.IsRemoteReachable(
+    builder.Configuration["urls"] ?? builder.Configuration["ASPNETCORE_URLS"],
+    builder.Configuration["HTTP_PORTS"] ?? builder.Configuration["HTTPS_PORTS"] ?? builder.Configuration["ASPNETCORE_HTTP_PORTS"] ?? builder.Configuration["ASPNETCORE_HTTPS_PORTS"],
+    builder.Configuration.GetSection("Kestrel:Endpoints").GetChildren().Select(e => e["Url"]));
+if (remoteReachable)
+{
+    builder.Services.PostConfigure<GitHubOptions>(o => o.Token = null);
+    Console.WriteLine("CIWorkbench: listening beyond loopback, so Live GitHub mode is disabled and only demo data is served.");
+}
 builder.Services.AddScoped<DemoCiProvider>(sp => new DemoCiProvider(sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddScoped<AppSession>();
 builder.Services.AddScoped<ICiProvider, SwitchableCiProvider>();
@@ -68,3 +83,9 @@ app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.Run();
 
 public partial class Program;
+
+/// <summary>System time provider whose <see cref="GetUtcNow"/> is fixed; used only when CIWORKBENCH_DEMO_NOW is set.</summary>
+internal sealed class PinnedClock(DateTimeOffset now) : TimeProvider
+{
+    public override DateTimeOffset GetUtcNow() => now;
+}

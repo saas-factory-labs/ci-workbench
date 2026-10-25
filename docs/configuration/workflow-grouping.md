@@ -1,10 +1,10 @@
-# Workflow grouping: `.ciworkbench.yml`
+# Workflow grouping: `.github/ciworkbench.yml`
 
-CIWorkbench organizes a repository's GitHub Actions workflows into collapsible groups. Groups come from an optional file named **`.ciworkbench.yml`** in the root of the repository's default branch. CIWorkbench only ever **reads** it (it needs `Contents: Read`); it never writes configuration back.
+CIWorkbench organizes a repository's GitHub Actions workflows into collapsible groups. Groups come from an optional file named **`.github/ciworkbench.yml`** on the repository's default branch. CIWorkbench only ever **reads** it (it needs `Contents: Read`); it never writes configuration back.
 
 ## Quick start
 
-Create `.ciworkbench.yml`. The first line makes editors validate and autocomplete the file against the published schema, so nobody has to copy a schema file into their repository:
+Create `.github/ciworkbench.yml`. The first line makes editors validate and autocomplete the file against the published schema, so nobody has to copy a schema file into their repository:
 
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/saas-factory-labs/ci-workbench/main/schemas/ciworkbench.schema.json
@@ -29,18 +29,33 @@ The `# yaml-language-server: $schema=...` directive is understood by the YAML La
 ```json
 {
   "yaml.schemas": {
-    "https://raw.githubusercontent.com/saas-factory-labs/ci-workbench/main/schemas/ciworkbench.schema.json": ".ciworkbench.yml"
+    "https://raw.githubusercontent.com/saas-factory-labs/ci-workbench/main/schemas/ciworkbench.schema.json": [".github/ciworkbench.yml", ".ciworkbench.yml"]
   }
 }
 ```
 
 > **Availability:** the URL is served by GitHub Raw from the `main` branch of `saas-factory-labs/ci-workbench`. It resolves only after `schemas/ciworkbench.schema.json` has been merged to `main`. Until then editors show a "could not load schema" notice and the file is still read normally by CIWorkbench (the schema is a convenience for editors; CIWorkbench validates the file itself).
 
+## Where the file lives
+
+CIWorkbench looks only in the **selected repository**, in this order, and uses the first file that exists:
+
+1. **`.github/ciworkbench.yml`** (recommended)
+2. `.ciworkbench.yml` in the repository root (legacy, still supported)
+
+Rules:
+
+- If `.github/ciworkbench.yml` exists it is the only file used, even when it is invalid. An invalid preferred file never silently falls back to the legacy one; its problems are reported (with the file name and line numbers) and workflows fall back to comments and "Ungrouped".
+- If neither file exists there is no central configuration and grouping uses workflow comments, then "Ungrouped".
+- An empty or comment-only file counts as an existing file with no groups.
+- Both locations use the same format and the same [JSON Schema](../../schemas/ciworkbench.schema.json); the schema is independent of the file's location.
+- To migrate, move the file: `git mv .ciworkbench.yml .github/ciworkbench.yml`.
+
 ## Precedence
 
 For every workflow, the first rule that applies wins:
 
-1. **Central configuration**: the first group in `.ciworkbench.yml` (in file order) whose `workflows` list matches the workflow's path.
+1. **Central configuration**: the first group in the central config file (in file order) whose `workflows` list matches the workflow's path.
 2. **Workflow comment**: a line `# ci-workbench-group: <name>` anywhere in the workflow file.
 3. **`Ungrouped`**.
 
@@ -68,7 +83,7 @@ Every message names the file, the line and the problem. They appear in the repos
 
 | Code | Meaning | Example |
 |---|---|---|
-| `syntax-error` | Not valid YAML; the whole file is ignored | `.ciworkbench.yml line 3: is not valid YAML and was ignored entirely: ...` |
+| `syntax-error` | Not valid YAML; the whole file is ignored | `.github/ciworkbench.yml line 3: is not valid YAML and was ignored entirely: ...` |
 | `invalid-type` | Wrong kind of value | `groups[2].name must be text (found a number); put quotes around it ...` |
 | `unknown-field` | A field that is not part of the contract, with a suggestion when it looks like a typo | `unknown field 'workflow' in groups[1] (did you mean 'workflows'?)` |
 | `missing-field` | A group without `name` | `groups[3] is missing the required field 'name'` |

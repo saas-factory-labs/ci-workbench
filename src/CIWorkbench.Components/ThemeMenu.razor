@@ -1,0 +1,72 @@
+@* Compact topbar theme selector: one icon button (sun, moon or monitor) opening a menu with Light, Dark and System. *@
+@implements IDisposable
+@inject ThemeState Theme
+@inject IJSRuntime JS
+
+<div class="ciw-thememenu">
+    <button type="button" id="ciw-theme-btn" class="ciw-iconbtn ciw-themebtn" aria-haspopup="menu" aria-expanded="@(_open ? "true" : "false")" aria-controls="ciw-theme-menu"
+            aria-label="Theme: @Current.Label" title="Theme: @Current.Label" @onclick="ToggleAsync" data-testid="theme-menu-button"><Icon Name="@Current.Icon" Size="18" /></button>
+    @if (_open)
+    {
+        <div class="ciw-menu-backdrop" @onclick="CloseAsync" data-testid="theme-menu-backdrop"></div>
+        <div id="ciw-theme-menu" class="ciw-menu" role="menu" aria-label="Theme" @onkeydown="OnKeyAsync" data-testid="theme-menu">
+            @foreach (var (p, label, icon) in ThemeToggle.Options)
+            {
+                <button type="button" role="menuitemradio" class="ciw-menuitem" aria-checked="@(Theme.Preference == p ? "true" : "false")" data-theme-option="@ThemeState.ToKey(p)" @onclick="() => PickAsync(p)">
+                    <Icon Name="@icon" Size="16" /><span>@label</span>@if (p == ThemePreference.System) { <span class="ciw-menuhint">@(Theme.ResolvedDark ? "dark now" : "light now")</span> }
+                    @if (Theme.Preference == p) { <Icon Name="check" Size="16" Class="ciw-menucheck" /> }
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _open;
+
+    private (string Label, string Icon) Current => Theme.Preference switch
+    {
+        ThemePreference.Light => ("Light", "sun"),
+        ThemePreference.Dark => ("Dark", "moon"),
+        _ => ("System", "monitor"),
+    };
+
+    private async Task ToggleAsync()
+    {
+        _open = !_open;
+        if (_open) await Safe(() => JS.InvokeVoidAsync("ciw.focusFirstIn", "ciw-theme-menu").AsTask());
+    }
+
+    private async Task CloseCoreAsync(bool restoreFocus)
+    {
+        _open = false;
+        if (restoreFocus) { await InvokeAsync(StateHasChanged); await Safe(() => JS.InvokeVoidAsync("ciw.focusById", "ciw-theme-btn").AsTask()); }
+    }
+
+    private Task CloseAsync() => CloseCoreAsync(false);
+
+    private async Task PickAsync(ThemePreference p)
+    {
+        Theme.Preference = p;
+        await CloseCoreAsync(true);
+    }
+
+    private async Task OnKeyAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") await CloseCoreAsync(true);
+        else if (e.Key is "ArrowDown" or "ArrowUp") await Safe(() => JS.InvokeVoidAsync("ciw.moveFocus", "ciw-theme-menu", e.Key == "ArrowDown" ? 1 : -1).AsTask());
+        else if (e.Key == "Tab") _open = false;
+    }
+
+    private static async Task Safe(Func<Task> js)
+    {
+        try { await js(); }
+        catch (JSException) { }
+        catch (InvalidOperationException) { }
+        catch (JSDisconnectedException) { }
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    protected override void OnInitialized() => Theme.Changed += OnChanged;
+    public void Dispose() => Theme.Changed -= OnChanged;
+}

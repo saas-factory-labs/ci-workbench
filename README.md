@@ -6,15 +6,59 @@
 >
 > **License:** CIWorkbench Community is **source-available**, licensed under **Apache-2.0 with the Commons Clause v1.0**. You may read, use, modify, contribute to and share the software, including internal business use, but **selling CIWorkbench or an offering whose value derives entirely or substantially from CIWorkbench's functionality is restricted**. This is **not OSI-approved open source**. See [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md).
 
-## Why
+> Status: hackathon MVP, run locally (there is no hosted instance). See [what is implemented vs. planned](#status).
+
+![CIWorkbench repository workspace in dark mode: health summary, status filters and grouped workflows](docs/screenshots/dark/repository-workspace.webp)
+
+*All screenshots are real captures of the built-in demo mode, which uses fully synthetic data.*
+
+## Why CIWorkbench?
 
 GitHub Actions lists workflows flat and per run. With 40 workflows that is hard to navigate, and with a nightly job that keeps failing you cannot see *what* keeps failing. CIWorkbench adds:
 
-- **Workflow groups**: collapsible, hierarchical groups from a central `.ciworkbench.yml` or a `# ci-workbench-group: Security` comment in the workflow file.
-- **Recurring failure series**: deterministic fingerprinting (workflow, job, failed step, normalized error signature) that groups repeated failures, shows streaks, and separates unrelated errors in the same job.
-- **Run Inspector**: collapsible side panel with jobs, steps, on-demand logs, a link to the original run and a safe **Copy context for coding agent** action (redacted, bounded, never sent anywhere).
-- **Honest onboarding**: verifies each permission with the real API call, shows progressive repository discovery, rate-limit state and exact failure reasons.
-- **Comfortable / Compact density**, switchable without reload.
+- **Workflow groups** from a central `.github/ciworkbench.yml` or a `# ci-workbench-group: Security` comment in the workflow file.
+- **Clear status and repository health**: success rate, workflows needing attention, average duration.
+- **Fast troubleshooting**: quick preview, workflow and run pages, on-demand logs, a detected error and the failing job and step.
+- **Recurring failure series**: deterministic fingerprinting (workflow, job, failed step, normalized error signature) that shows streaks and separates unrelated errors in the same job.
+- **Read-only GitHub integration**: a fine-grained token with read permissions, held server-side.
+
+## Features
+
+### Organized workflow workspace
+
+Workflows are grouped and summarized per repository, with status filters and a "needs attention" summary on top.
+
+### Diagnose failures without leaving the overview
+
+Expand a workflow row to see its latest run, the failed job and step, the detected error and recent run outcomes. Open Workflow Details or the Quick Inspector from there.
+
+![Two expanded workflows in the Security group: a failed one with the detected error and a successful one](docs/screenshots/dark/workflow-quick-preview.webp)
+
+### Understand workflow health and history
+
+Recent Outcomes shows the success/failure distribution, the current failure streak and the last successful run above a filterable, paginated run history.
+
+![Workflow Details with Recent Outcomes and run history](docs/screenshots/dark/workflow-details.webp)
+
+### Investigate failed runs
+
+Run Details names the failing job and step, shows the error extracted from the log with a highlighted excerpt, and links related failure series. **Copy context for coding agent** produces a redacted, bounded summary that is never sent anywhere.
+
+![Run Details with the detected error, log excerpt and related failure series](docs/screenshots/dark/run-details.webp)
+
+### Detect recurring failures
+
+Failures are grouped by a normalized error signature rather than exit code, so two different errors in the same job stay separate and one-off failures are not reported as recurring.
+
+![Failure Series tab with two recurring signatures and a one-off failure](docs/screenshots/dark/failure-series.webp)
+
+### Inspect job-level history
+
+The Jobs tab shows the outcome of every job across recent runs, so you can see which job is unhealthy without opening each run.
+
+![Jobs tab with per-job outcome history](docs/screenshots/dark/job-history.webp)
+
+Also included: Light, Dark and System themes, Comfortable and Compact density, and responsive layouts down to phone width.
 
 ## Quick start (demo mode, no credentials)
 
@@ -24,7 +68,13 @@ Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download).
 dotnet run --project src/CIWorkbench.Web --urls http://localhost:5290
 ```
 
-Open <http://localhost:5290>: it goes straight to the workflow workspace of a synthetic 39-workflow monorepo. Demo mode uses fully synthetic data (that monorepo and a scraper actor with two recurring failure series) and is labelled as such.
+Open <http://localhost:5290>: it goes straight to the workflow workspace of a synthetic 39-workflow monorepo. Demo mode uses fully synthetic data (that monorepo and a scraper actor with recurring failure series) and is labelled as such. No token or network access to GitHub is needed.
+
+Routes, responsive behaviour and how to try the demo on a phone: [docs/development/responsive-and-mobile-testing.md](docs/development/responsive-and-mobile-testing.md).
+
+Colour tokens, Light/Dark/System theming and the visual, accessibility and theme test tooling: [docs/development/design-system.md](docs/development/design-system.md).
+
+How the screenshots above are regenerated: [docs/development/readme-screenshots.md](docs/development/readme-screenshots.md).
 
 ## Live GitHub (read-only)
 
@@ -83,7 +133,7 @@ dotnet test tests/CIWorkbench.Core.Tests; dotnet test tests/CIWorkbench.GitHub.T
 
 ## Configuring groups
 
-Add an optional `.ciworkbench.yml` to the root of the repository's default branch. The first line is a [YAML Language Server](https://github.com/redhat-developer/yaml-language-server) directive that points your editor at the published schema, so you get validation and autocompletion without copying any file:
+Add an optional **`.github/ciworkbench.yml`** to the repository's default branch (the legacy root `.ciworkbench.yml` is still read when the `.github` file does not exist; if both exist, `.github/ciworkbench.yml` wins and the legacy file is ignored). The first line is a [YAML Language Server](https://github.com/redhat-developer/yaml-language-server) directive that points your editor at the published schema, so you get validation and autocompletion without copying any file:
 
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/saas-factory-labs/ci-workbench/main/schemas/ciworkbench.schema.json
@@ -109,7 +159,7 @@ Precedence: **central config → `# ci-workbench-group:` comment → "Ungrouped"
 | GitHub App auth, per-user repository authorization, hosted multi-user mode | Planned (interfaces only, see docs) |
 | Azure DevOps / other providers | Planned |
 | Webhooks / push updates | Not planned for MVP (30 s polling) |
-| Playwright browser tests in CI | Planned (manual browser smoke only so far) |
+| Playwright browser tests in CI | Planned (browser scripts exist in `tests/visual` and run manually; they are not part of CI) |
 
 ## Contributing / License
 

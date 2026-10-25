@@ -8,6 +8,15 @@ public enum Density { Comfortable, Compact }
 
 public enum WorkspaceView { Groups, Failures }
 
+/// <summary>Panel = quick inspector beside a list; Page = the same diagnostics inside a full run page.</summary>
+public enum InspectorMode { Panel, Page }
+
+/// <summary>Tab and filters of the workflow details page; hosts map it to and from their URL.</summary>
+public sealed record WorkflowDetailsQuery(string? Tab = null, string? Q = null, string? Status = null, string? Branch = null, string? Event = null)
+{
+    public static readonly WorkflowDetailsQuery Empty = new();
+}
+
 /// <summary>What the user picked; hosts decide where the inspector lives.</summary>
 public sealed record RunSelection(RepoRef Repo, WorkflowRunInfo Run, string? FocusJob = null);
 
@@ -17,8 +26,13 @@ public sealed class UiPreferences
     private readonly HashSet<string> _expanded = new(StringComparer.Ordinal);
     private Density _density = Density.Comfortable;
     private bool _inspectorOpen;
+    private string _statusFilter = "All";
 
     public event Action? Changed;
+
+    /// <summary>Status filter chip of the workspace and the repository it was chosen for; survives a trip to a detail page and back.</summary>
+    public string StatusFilter { get => _statusFilter; set { if (_statusFilter != value) { _statusFilter = value; Changed?.Invoke(); } } }
+    public RepoRef? FilterRepo { get; set; }
 
     public Density Density { get => _density; set { if (_density != value) { _density = value; Changed?.Invoke(); } } }
     public bool InspectorOpen { get => _inspectorOpen; set { if (_inspectorOpen != value) { _inspectorOpen = value; Changed?.Invoke(); } } }
@@ -30,7 +44,35 @@ public sealed class UiPreferences
         if (expanded ? _expanded.Add(key) : _expanded.Remove(key)) Changed?.Invoke();
     }
     public void Toggle(string key) => SetExpanded(key, !IsExpanded(key));
-    public void RestoreExpanded(IEnumerable<string> keys) { foreach (var k in keys) _expanded.Add(k); }
+    public void RestoreExpanded(IEnumerable<string> keys)
+    {
+        var added = false;
+        foreach (var k in keys) added |= _expanded.Add(k);
+        if (added) Changed?.Invoke();   // components that rendered before the preferences arrived (slower browsers) must pick them up
+    }
+}
+
+/// <summary>User choice for the colour theme. <see cref="System"/> follows the operating system and is the default.</summary>
+public enum ThemePreference { System, Light, Dark }
+
+/// <summary>
+/// The one source of truth for the theme in a circuit. The host persists <see cref="Preference"/> (localStorage "ciw:theme", via ciw-theme.js)
+/// and reports what System resolved to; components only read and set the preference. Holds no credentials, only a UI choice.
+/// </summary>
+public sealed class ThemeState
+{
+    private ThemePreference _preference = ThemePreference.System;
+    private bool _resolvedDark = true;
+
+    public event Action? Changed;
+
+    public ThemePreference Preference { get => _preference; set { if (_preference != value) { _preference = value; Changed?.Invoke(); } } }
+    /// <summary>What is actually rendered: the preference, or the OS setting when the preference is System. Reported by the host after the browser resolves it.</summary>
+    public bool ResolvedDark => _preference switch { ThemePreference.Dark => true, ThemePreference.Light => false, _ => _resolvedDark };
+    public void SetResolvedFromHost(bool dark) { if (_resolvedDark != dark) { _resolvedDark = dark; Changed?.Invoke(); } }
+
+    public static string ToKey(ThemePreference p) => p switch { ThemePreference.Light => "light", ThemePreference.Dark => "dark", _ => "system" };
+    public static ThemePreference Parse(string? key) => key switch { "light" => ThemePreference.Light, "dark" => ThemePreference.Dark, _ => ThemePreference.System };
 }
 
 /// <summary>Shared selection state between a workspace and whichever host panel renders the inspector.</summary>
@@ -63,8 +105,11 @@ public static class CIWorkbenchComponentsExtensions
     {
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddScoped<UiPreferences>();
+        services.TryAddScoped<ThemeState>();
         services.TryAddScoped<InspectorState>();
         services.TryAddScoped<WorkspaceSignals>();
+        services.TryAddScoped(sp => new CachedCi(sp.GetRequiredService<ICiProvider>(), sp.GetRequiredService<TimeProvider>()));
+        services.TryAddSingleton<CiwRoutes>();
         return services;
     }
 }
@@ -108,6 +153,7 @@ public static class Fmt
     public static string StateClass(RunState s) => s switch
     {
         RunState.Success => "ok", RunState.Failure => "fail", RunState.Cancelled or RunState.Skipped or RunState.Neutral => "muted",
+        RunState.Queued => "wait",
         _ => "active",
     };
 }

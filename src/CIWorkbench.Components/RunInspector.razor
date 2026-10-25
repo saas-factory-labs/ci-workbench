@@ -1,8 +1,10 @@
 @implements IAsyncDisposable
-@inject ICiProvider Provider
+@inject CachedCi Provider
 @inject TimeProvider Time
+@inject IJSRuntime JS
+@inject CiwRoutes Routes
 
-<aside class="ciw-inspector" aria-label="Run inspector">
+<div class="ciw-inspector @(IsPage ? "page" : "")" role="@(IsPage ? "region" : "complementary")" aria-label="@(IsPage ? "Run diagnostics" : "Run inspector")" data-testid="@(IsPage ? "run-diagnostics" : "quick-inspector")">
     @if (Selection is null)
     {
         <div class="ciw-empty">Select a run to inspect its jobs and steps.</div>
@@ -10,126 +12,332 @@
     else
     {
         var run = Selection.Run;
-        <header class="ciw-insp-head">
-            <div class="ciw-insp-title"><StatusIcon State="run.State"/> <strong>@run.Name</strong> <span class="ciw-mono ciw-muted">#@run.RunNumber</span></div>
-            <div class="ciw-muted ciw-mono ciw-wrap">@run.WorkflowPath</div>
-            <dl class="ciw-kv compact">
-                <dt>Repository</dt><dd>@Selection.Repo</dd>
-                <dt>Status</dt><dd>@Fmt.StateLabel(run.State)</dd>
-                <dt>Trigger</dt><dd>@run.Event by @run.Actor</dd>
-                <dt>Branch</dt><dd><span class="ciw-chip branch">@run.Branch</span> <span class="ciw-mono ciw-muted">@(run.HeadSha.Length > 7 ? run.HeadSha[..7] : run.HeadSha)</span></dd>
-                @if (!string.IsNullOrEmpty(run.CommitMessage)) { <dt>Commit</dt><dd class="ciw-wrap">@run.CommitMessage</dd> }
-                <dt>Started</dt><dd>@Fmt.When(run.SortTime) <span class="ciw-muted">(@Fmt.Ago(run.SortTime, Time.GetUtcNow()))</span></dd>
-                <dt>Duration</dt><dd>@Fmt.Duration(run.Duration)</dd>
-            </dl>
-            <div class="ciw-insp-actions">
+        var now = Time.GetUtcNow();
+        <header class="ciw-insp-head" data-testid="inspector-header">
+            @if (!IsPage)
+            {
+            <div class="ciw-insp-title">
+                <StatusBadge State="run.State" />
+                <strong class="ciw-insp-name" title="@run.WorkflowPath">@run.Name</strong>
+                <span class="ciw-mono ciw-muted" title="Run number">#@run.RunNumber</span>
+                <span class="ciw-spacer"></span>
                 @if (Provider.IsDemo)
                 {
-                    <span class="ciw-btn disabled" aria-disabled="true" title="Demo data: this run does not exist on GitHub.">Open on GitHub ↗</span>
+                    <span class="ciw-iconbtn disabled" aria-disabled="true" title="Demo data: this run does not exist on GitHub."><Icon Name="external" Size="16" /></span>
                 }
                 else if (SafeUrl(run.HtmlUrl) is { } url)
                 {
-                    <a class="ciw-btn" href="@url" target="_blank" rel="noopener noreferrer">Open on GitHub ↗</a>
+                    <a class="ciw-iconbtn" href="@url" target="_blank" rel="noopener noreferrer" title="Open this run on GitHub" aria-label="Open run on GitHub"><Icon Name="external" Size="16" /></a>
                 }
-                <CopyContextButton BuildText="BuildContextAsync" Primary="true" />
+                <button type="button" class="ciw-iconbtn ciw-insp-close" @onclick="() => OnClose.InvokeAsync()" aria-label="Close inspector" title="Close inspector (Esc)" data-testid="inspector-close"><Icon Name="x" Size="16" /><span class="ciw-close-label">Close</span></button>
+            </div>
+            <p class="ciw-insp-sub" title="@Fmt.When(run.SortTime)">Run <span class="ciw-mono">@run.Id</span> · started @Fmt.Ago(run.SortTime, now)@(run.Duration is { } d ? $" · took {Fmt.Duration(d)}" : "")</p>
+            }
+            <div class="ciw-tabs" role="tablist" aria-label="Run details">
+                @foreach (var t in Tabs)
+                {
+                    <button type="button" role="tab" class="ciw-tab @(_tab == t ? "on" : "")" aria-selected="@(_tab == t ? "true" : "false")" aria-controls="ciw-insp-panel" @onclick="() => _tab = t" data-tab="@t">
+                        @TabLabel(t)
+                    </button>
+                }
             </div>
         </header>
 
-        @if (_error is not null) { <div class="ciw-notice warn" role="alert">⚠ @_error</div> }
-        @if (_jobs is null && _error is null) { <div class="ciw-loading" role="status"><div class="ciw-skel w80"></div><div class="ciw-skel w60"></div></div> }
-        else if (_jobs is not null)
-        {
-            var failed = _jobs.Where(j => j.State == RunState.Failure).ToList();
-            @if (failed.Count > 0)
+        <div class="ciw-insp-panel" id="ciw-insp-panel" role="tabpanel">
+            @if (_error is not null) { <div class="ciw-notice warn" role="alert">⚠ @_error</div> }
+            @if (_jobs is null && _error is null) { <div class="ciw-loading" role="status"><div class="ciw-skel w80"></div><div class="ciw-skel w60"></div></div> }
+            else if (_jobs is not null)
             {
-                <div class="ciw-notice fail" role="status"><strong>@failed.Count failed @(failed.Count == 1 ? "job" : "jobs")</strong>: @string.Join(", ", failed.Select(j => j.Name))</div>
-            }
-            <h4 class="ciw-insp-sub">Jobs</h4>
-            <ul class="ciw-jobs">
-            @foreach (var j in _jobs.OrderByDescending(j => j.State == RunState.Failure).ThenBy(j => j.Name))
-            {
-                <li class="ciw-jobitem @Fmt.StateClass(j.State) @(j.Name == Selection.FocusJob ? "focus" : "")" data-job="@j.Name">
-                    <div class="ciw-jobhead"><StatusIcon State="j.State"/> <strong>@j.Name</strong> <span class="ciw-muted">@Fmt.Duration(j.Duration)</span>
-                        @if (j.State == RunState.Failure) { <span class="ciw-chip bad">failed</span> }</div>
-                    <ol class="ciw-steps">
-                    @foreach (var s in j.Steps)
+                @switch (_tab)
+                {
+                    case InspectorTab.Summary:
                     {
-                        <li class="@Fmt.StateClass(s.State)"><StatusIcon State="s.State"/> <span>@s.Name</span></li>
-                    }
-                    </ol>
-                    @if (j.State == RunState.Failure)
-                    {
-                        @if (!_logs.TryGetValue(j.Id, out var log))
+                        var failed = FailedJobs;
+                        var p = Primary;
+                        if (failed.Count > 0 && p is not null)
                         {
-                            <button type="button" class="ciw-btn sm" @onclick="() => LoadLogAsync(j)" disabled="@_logLoading.Contains(j.Id)">@(_logLoading.Contains(j.Id) ? "Loading log…" : "Load log excerpt")</button>
+                            var step = FailingStep(p);
+                            var hasLog = _logs.TryGetValue(p.Id, out var log);
+                            <section class="ciw-diag" data-testid="failure-summary">
+                                <p class="ciw-eyebrow bad"><Icon Name="alert" Size="14" /> @(failed.Count == 1 ? "Failed job" : $"Failed job · {failed.Count} failed")</p>
+                                <h3 class="ciw-diag-title">@p.Name</h3>
+                                <p class="ciw-diag-where">@if (step is null) { <span>No failing step reported</span> } else { <span>Step: <strong>@step</strong></span> }</p>
+                                @if (_logLoading.Contains(p.Id)) { <div class="ciw-loading" role="status"><div class="ciw-skel w80"></div></div> }
+                                else if (hasLog && log is null) { <p class="ciw-cause"><span class="ciw-eyebrow">Log unavailable</span> <span class="ciw-hint">The log is expired, deleted or not readable with this token.</span></p> }
+                                else if (hasLog)
+                                {
+                                    var sig = SignatureExtractor.Extract(log);
+                                    var lines = ParseLog(log!, sig);
+                                    <div class="ciw-cause" data-testid="cause">
+                                        @if (sig.Kind == SignatureKind.Known)
+                                        {
+                                            <span class="ciw-eyebrow">Detected error</span>
+                                            <code class="ciw-errline">@AgentContext.Redact(sig.Raw!)</code>
+                                            <span class="ciw-hint">Extracted from the log by pattern matching, not interpreted.</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="ciw-eyebrow">Cause unknown</span>
+                                            <span class="ciw-hint">No error line could be extracted from the log tail.</span>
+                                        }
+                                    </div>
+                                    @if (lines.Count > 0)
+                                    {
+                                        var win = SummaryWindow(lines);
+                                        <div class="ciw-logbox">
+                                            <div class="ciw-logbar"><span>Log excerpt · @(win.Count < lines.Count ? $"{win.Count} of last {lines.Count} lines" : $"last {lines.Count} lines")</span><span class="ciw-spacer"></span>
+                                                <button type="button" class="ciw-linkbtn sm" @onclick="() => CopyLogAsync(win)">@(_logCopied ? "Copied ✓" : "Copy")</button>
+                                                <button type="button" class="ciw-linkbtn sm" @onclick="() => _tab = InspectorTab.Logs">Full excerpt</button></div>
+                                            <pre class="ciw-log" tabindex="0" aria-label="Log excerpt for @p.Name">@foreach (var l in win) { <span class="ciw-logline @(l.IsError ? "err" : "")"><i>@l.No</i>@l.Text</span> }</pre>
+                                        </div>
+                                    }
+                                }
+                                else { <button type="button" class="ciw-btn sm" @onclick="() => LoadLogAsync(p)">Load log excerpt</button> }
+                                @if (failed.Count > 1)
+                                {
+                                    <p class="ciw-others">Also failed: @foreach (var o in failed.Where(j => j.Id != p.Id)) { <button type="button" class="ciw-chipbtn" @onclick="() => FocusAsync(o)">@o.Name</button> }</p>
+                                }
+                            </section>
                         }
-                        else if (log is null) { <p class="ciw-muted">Log unavailable (expired, deleted or not readable with this token).</p> }
-                        else { <pre class="ciw-log" tabindex="0" aria-label="Log excerpt for @j.Name">@Excerpt(log)</pre> }
+                        else
+                        {
+                            <section class="ciw-diag quiet">
+                                <p class="ciw-eyebrow @(run.State == RunState.Success ? "good" : "")">@Fmt.StateLabel(run.State)</p>
+                                <h3 class="ciw-diag-title">@StateHeadline(run, _jobs)</h3>
+                            </section>
+                        }
+                        <div class="ciw-insp-actions">
+                            @if (!IsPage) { <a class="ciw-btn primary" href="@Routes.Run(Selection.Repo, run.Id)" data-action="open-run-details">Open full run details <Icon Name="chevron-right" Size="14" /></a> }
+                            @if (!IsPage) { <CopyContextButton BuildText="BuildContextAsync" /> }
+                            @if (p is not null && !Provider.IsDemo && SafeUrl(p.HtmlUrl) is { } logUrl) { <a class="ciw-btn" href="@logUrl" target="_blank" rel="noopener noreferrer">View full logs ↗</a> }
+                            else if (p is not null) { <span class="ciw-btn disabled" aria-disabled="true" title="Demo data: there is no GitHub log to open.">View full logs ↗</span> }
+                            @if (OnInspectSimilar.HasDelegate && failed.Count > 0) { <button type="button" class="ciw-btn" @onclick="() => OnInspectSimilar.InvokeAsync(Selection)" data-action="inspect-similar">Inspect similar failures</button> }
+                        </div>
+                        @if (!IsPage)
+                        {
+                        <dl class="ciw-kv compact" aria-label="Run details">
+                            <dt>Repository</dt><dd>@Selection.Repo</dd>
+                            <dt>Trigger</dt><dd>@run.Event by @run.Actor</dd>
+                            <dt>Branch</dt><dd><span class="ciw-chip branch">@run.Branch</span> <span class="ciw-mono ciw-muted">@(run.HeadSha.Length > 7 ? run.HeadSha[..7] : run.HeadSha)</span></dd>
+                            @if (!string.IsNullOrEmpty(run.CommitMessage)) { <dt>Commit</dt><dd class="ciw-wrap">@run.CommitMessage</dd> }
+                            <dt>Started</dt><dd>@Fmt.When(run.SortTime)</dd>
+                        </dl>
+                        }
+                        break;
                     }
-                </li>
+                    case InspectorTab.Jobs:
+                    {
+                        if (_jobs.Count == 0) { <div class="ciw-empty slim">No jobs were reported for this run.</div> }
+                        <ul class="ciw-jobs">
+                        @foreach (var j in _jobs.OrderByDescending(j => j.State == RunState.Failure).ThenBy(j => j.Name))
+                        {
+                            var open = _jobOpen.Contains(j.Id);
+                            <li class="ciw-jobitem @Fmt.StateClass(j.State) @(j.Name == Selection.FocusJob ? "focus" : "")" data-job="@j.Name">
+                                <button type="button" class="ciw-jobhead" aria-expanded="@(open ? "true" : "false")" @onclick="() => ToggleJob(j)">
+                                    <Icon Name="@(open ? "chevron-down" : "chevron-right")" Size="14" Class="ciw-chev" />
+                                    <StatusIcon State="j.State"/> <strong>@j.Name</strong>
+                                    <span class="ciw-spacer"></span><span class="ciw-muted">@Fmt.Duration(j.Duration)</span>
+                                </button>
+                                @if (open)
+                                {
+                                    <ol class="ciw-steps">
+                                    @foreach (var s in j.Steps) { <li class="@Fmt.StateClass(s.State)"><StatusIcon State="s.State"/> <span>@s.Name</span></li> }
+                                    </ol>
+                                }
+                            </li>
+                        }
+                        </ul>
+                        break;
+                    }
+                    default:
+                    {
+                        var failed = FailedJobs;
+                        if (failed.Count == 0) { <div class="ciw-empty slim">Log excerpts are offered for failed jobs. Use “View full logs” on GitHub for the rest.</div> }
+                        @foreach (var j in failed)
+                        {
+                            <section class="ciw-logjob" data-job="@j.Name">
+                                <h4>@j.Name</h4>
+                                @if (!_logs.TryGetValue(j.Id, out var jl))
+                                {
+                                    <button type="button" class="ciw-btn sm" @onclick="() => LoadLogAsync(j)" disabled="@_logLoading.Contains(j.Id)">@(_logLoading.Contains(j.Id) ? "Loading log…" : "Load log excerpt")</button>
+                                }
+                                else if (jl is null) { <p class="ciw-muted">Log unavailable (expired, deleted or not readable with this token).</p> }
+                                else
+                                {
+                                    var lines = ParseLog(jl, SignatureExtractor.Extract(jl));
+                                    <div class="ciw-logbox">
+                                        <div class="ciw-logbar"><span>Last @lines.Count lines</span><span class="ciw-spacer"></span>
+                                            <button type="button" class="ciw-linkbtn sm" @onclick="() => CopyLogAsync(lines)">@(_logCopied ? "Copied ✓" : "Copy")</button></div>
+                                        <pre class="ciw-log tall" tabindex="0" aria-label="Log excerpt for @j.Name">@foreach (var l in lines) { <span class="ciw-logline @(l.IsError ? "err" : "")"><i>@l.No</i>@l.Text</span> }</pre>
+                                    </div>
+                                }
+                                @if (!Provider.IsDemo && SafeUrl(j.HtmlUrl) is { } ju) { <a class="ciw-linkbtn sm" href="@ju" target="_blank" rel="noopener noreferrer">View full logs ↗</a> }
+                            </section>
+                        }
+                        break;
+                    }
+                }
             }
-            </ul>
-        }
+        </div>
     }
-</aside>
+</div>
 
 @code {
+    private enum InspectorTab { Summary, Jobs, Logs }
+    private static readonly InspectorTab[] Tabs = [InspectorTab.Summary, InspectorTab.Jobs, InspectorTab.Logs];
+
+    /// <summary>Panel = the quick inspector beside a list; Page = the same diagnostics inside a full run page (the page supplies title, status and metadata).</summary>
+    [Parameter] public InspectorMode Mode { get; set; } = InspectorMode.Panel;
+    private bool IsPage => Mode == InspectorMode.Page;
+
     [Parameter] public RunSelection? Selection { get; set; }
+    /// <summary>Raised by the close button; the host decides whether that collapses a pane or clears the selection.</summary>
+    [Parameter] public EventCallback OnClose { get; set; }
+    /// <summary>Raised by "Inspect similar failures"; the host decides where failure series live. The button is hidden when unset.</summary>
+    [Parameter] public EventCallback<RunSelection> OnInspectSimilar { get; set; }
 
     private IReadOnlyList<JobInfo>? _jobs;
     private string? _error;
+    private InspectorTab _tab;
+    private string? _focusJob;
+    private bool _logCopied;
     private readonly Dictionary<long, string?> _logs = [];
     private readonly HashSet<long> _logLoading = [];
+    private readonly HashSet<long> _jobOpen = [];
     private long _loadedRun;
     private CancellationTokenSource _cts = new();
 
     private const int LogLines = 120;
+    private const int SummaryLines = 14;
+
+    private string TabLabel(InspectorTab t) => t switch
+    {
+        InspectorTab.Jobs => _jobs is null ? "Jobs" : $"Jobs ({_jobs.Count})",
+        _ => t.ToString(),
+    };
 
     protected override async Task OnParametersSetAsync()
     {
         if (Selection is null) { _jobs = null; _loadedRun = 0; return; }
-        if (_loadedRun == Selection.Run.Id) return;
+        if (_loadedRun == Selection.Run.Id)
+        {
+            if (Selection.FocusJob is not null && Selection.FocusJob != _focusJob) { _focusJob = Selection.FocusJob; _tab = InspectorTab.Summary; await EnsurePrimaryLogAsync(); }
+            return;
+        }
         _loadedRun = Selection.Run.Id;
         _cts.Cancel(); _cts.Dispose(); _cts = new CancellationTokenSource();
-        _jobs = null; _error = null; _logs.Clear(); _logLoading.Clear();
+        _jobs = null; _error = null; _logs.Clear(); _logLoading.Clear(); _jobOpen.Clear(); _tab = InspectorTab.Summary; _focusJob = Selection.FocusJob; _logCopied = false;
         var ct = _cts.Token; var sel = Selection;
-        try { _jobs = await Provider.ListJobsAsync(sel.Repo, sel.Run.Id, ct); }
-        catch (OperationCanceledException) { }
-        catch (CiProviderException ex) { _error = ex.Message; _jobs = []; }
+        try
+        {
+            _jobs = await Provider.ListJobsAsync(sel.Repo, sel.Run.Id, ct);
+            if (IsPage) { foreach (var fj in FailedJobs) _jobOpen.Add(fj.Id); }
+            if (Primary is { } p) _jobOpen.Add(p.Id);
+        }
+        catch (OperationCanceledException) { return; }
+        catch (CiProviderException ex) { _error = ex.Message; _jobs = []; return; }
+        await InvokeAsync(StateHasChanged);
+        await EnsurePrimaryLogAsync();
     }
 
+    // ------------------------------------------------------------------ derived
+
+    private List<JobInfo> FailedJobs => (_jobs ?? []).Where(j => j.State == RunState.Failure).ToList();
+
+    /// <summary>The job the summary is about: the one the user picked if it failed, else the first failed job.</summary>
+    private JobInfo? Primary => FailedJobs.FirstOrDefault(j => j.Name == _focusJob) ?? FailedJobs.FirstOrDefault();
+
+    private static string? FailingStep(JobInfo j) => j.Steps.FirstOrDefault(s => s.State == RunState.Failure)?.Name;
+
     private static string? SafeUrl(string url) =>
-        Uri.TryCreate(url, UriKind.Absolute, out var u) && u.Scheme == Uri.UriSchemeHttps ? u.ToString() : null;
+        Uri.TryCreate(url, UriKind.Absolute, out var u) && u.Scheme == Uri.UriSchemeHttps && !u.Host.EndsWith(".invalid") ? u.ToString() : null;
+
+    private sealed record LogLine(int No, string Text, bool IsError);
+
+    /// <summary>
+    /// Decorations are stripped for display and secrets redacted, but error lines are identified from the raw text first
+    /// (explicit "##[error]" markers, or the line the signature extractor chose) so highlighting survives the cleanup.
+    /// </summary>
+    private static List<LogLine> ParseLog(string log, FailureSignature sig)
+    {
+        var result = new List<LogLine>();
+        foreach (var raw in log.Split('\n'))
+        {
+            var clean = SignatureExtractor.StripDecorations(raw.TrimEnd('\r'));
+            if (clean.Length == 0) continue;
+            var isError = raw.Contains("##[error]", StringComparison.Ordinal) || (sig.Raw is not null && clean == sig.Raw);
+            result.Add(new LogLine(0, AgentContext.Redact(clean), isError));
+        }
+        var tail = result.Skip(Math.Max(0, result.Count - LogLines)).ToList();
+        return tail.Select((l, i) => l with { No = i + 1 }).ToList();
+    }
+
+    private static List<LogLine> SummaryWindow(List<LogLine> lines)
+    {
+        if (lines.Count <= SummaryLines) return lines;
+        var first = lines.FindIndex(l => l.IsError);
+        if (first < 0) return lines.Skip(lines.Count - SummaryLines).ToList();
+        var start = Math.Max(0, Math.Min(first - 5, lines.Count - SummaryLines));
+        return lines.Skip(start).Take(SummaryLines).ToList();
+    }
+
+    // ------------------------------------------------------------------ log loading
+
+    private Task EnsurePrimaryLogAsync() => Primary is { } p && !_logs.ContainsKey(p.Id) ? LoadLogAsync(p) : Task.CompletedTask;
 
     private async Task LoadLogAsync(JobInfo j)
     {
-        _logLoading.Add(j.Id);
-        try { _logs[j.Id] = await Provider.GetJobLogTailAsync(Selection!.Repo, j.Id, FailureAnalyzer.LogBytes, _cts.Token); }
+        if (!_logLoading.Add(j.Id)) return;
+        await InvokeAsync(StateHasChanged);
+        var ct = _cts.Token;
+        try { _logs[j.Id] = await Provider.GetJobLogTailAsync(Selection!.Repo, j.Id, FailureAnalyzer.LogBytes, ct); }
         catch (CiProviderException ex) { _logs[j.Id] = null; _error = ex.Message; }
         catch (OperationCanceledException) { }
         finally { _logLoading.Remove(j.Id); }
+        await InvokeAsync(StateHasChanged);
     }
 
-    private static string Excerpt(string log)
+    private async Task CopyLogAsync(IEnumerable<LogLine> lines)
     {
-        var lines = log.Split('\n').Select(l => AgentContext.Redact(SignatureExtractor.StripDecorations(l))).Where(l => l.Length > 0).ToList();
-        return string.Join('\n', lines.Skip(Math.Max(0, lines.Count - LogLines)));
+        try { _logCopied = await JS.InvokeAsync<bool>("ciw.copy", string.Join('\n', lines.Select(l => l.Text))); }
+        catch (JSException) { _logCopied = false; }
+        catch (InvalidOperationException) { _logCopied = false; }
     }
 
-    private async Task<string> BuildContextAsync()
+    /// <summary>Agent-ready context for the selected run (also used by the run page's header button).</summary>
+    public async Task<string> BuildContextAsync()
     {
         var sel = Selection!;
-        var job = (_jobs ?? []).FirstOrDefault(j => j.Name == sel.FocusJob && j.State == RunState.Failure) ?? (_jobs ?? []).FirstOrDefault(j => j.State == RunState.Failure);
-        var step = job?.Steps.FirstOrDefault(s => s.State == RunState.Failure)?.Name;
+        var job = Primary;
+        var step = job is null ? null : FailingStep(job);
         string? log = null;
-        if (job is not null)
+        if (job is not null && !_logs.TryGetValue(job.Id, out log))
         {
-            if (!_logs.TryGetValue(job.Id, out log)) { try { log = await Provider.GetJobLogTailAsync(sel.Repo, job.Id, FailureAnalyzer.LogBytes, default); } catch (CiProviderException) { } }
+            try { log = await Provider.GetJobLogTailAsync(sel.Repo, job.Id, FailureAnalyzer.LogBytes, default); } catch (CiProviderException) { }
         }
         var sig = SignatureExtractor.Extract(log);
         var desc = job is null ? $"Run finished with status {Fmt.StateLabel(sel.Run.State)}." : sig.Raw is not null ? sig.Raw : $"Job \"{job.Name}\" failed" + (step is null ? "." : $" at step \"{step}\".");
         return AgentContext.Build(sel.Repo, sel.Run, job?.Name, step, desc, log);
     }
+
+    // ------------------------------------------------------------------ interaction
+
+    private void ToggleJob(JobInfo j) { if (!_jobOpen.Remove(j.Id)) _jobOpen.Add(j.Id); }
+
+    private async Task FocusAsync(JobInfo j) { _focusJob = j.Name; await EnsurePrimaryLogAsync(); }
+
+    private static string Plural(int n, string one, string many) => n == 1 ? one : many;
+
+    private static string StateHeadline(WorkflowRunInfo run, IReadOnlyList<JobInfo> jobs) => run.State switch
+    {
+        RunState.Success => jobs.Count == 0 ? "Run succeeded" : $"All {jobs.Count} {Plural(jobs.Count, "job", "jobs")} passed",
+        RunState.InProgress => "Run in progress",
+        RunState.Queued => "Run is queued",
+        RunState.Cancelled => "Run was cancelled",
+        RunState.Skipped => "Run was skipped",
+        RunState.Failure => "Run failed, but no failed job was reported",
+        _ => "Run finished without a verdict",
+    };
 
     public ValueTask DisposeAsync() { _cts.Cancel(); _cts.Dispose(); return ValueTask.CompletedTask; }
 }

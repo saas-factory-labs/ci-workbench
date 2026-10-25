@@ -1,18 +1,26 @@
-<div class="ciw-group depth-@Depth" data-group="@Group.Path">
-    <div class="ciw-group-head" tabindex="0" role="button" aria-expanded="@(Open ? "true" : "false")" @onclick="() => Ws.ToggleGroup(Group)" @onkeydown="OnKey">
-        <Icon Name="@(Open ? "chevron-down" : "chevron-right")" Size="16" Class="ciw-chev" />
-        <span class="ciw-gicon @GroupStyle.Tone"><Icon Name="@GroupStyle.Icon" Size="18" /></span>
-        <span class="ciw-group-name">@Group.Name</span>
-        <span class="ciw-count" title="Workflows in this group">@Ws.VisibleCount(Group)</span>
-        @if (!string.IsNullOrEmpty(Group.Description)) { <span class="ciw-muted ciw-desc">@Group.Description</span> }
-        <span class="ciw-spacer"></span>
-        @if (Ws.GroupFailing(Group) is > 0 and var failing) { <span class="ciw-chip bad" title="Workflows whose latest run failed">@failing failing</span> }
-        <SuccessBar Rate="Ws.GroupRate(Group)" Scope="@Ws.GroupScope(Group)" />
+<div class="ciw-group depth-@Depth @(Open ? "open" : "")" data-group="@Group.Path">
+    <div class="ciw-group-head" @onclick="() => Ws.ToggleGroup(Group)">
+        <button type="button" class="ciw-toggle ciw-group-toggle" aria-expanded="@(Open ? "true" : "false")" title="@(Open ? "Collapse" : "Expand") @Group.Name">
+            <Icon Name="@(Open ? "chevron-down" : "chevron-right")" Size="16" Class="ciw-chev" />
+            <span class="ciw-gicon" aria-hidden="true"><Icon Name="@GroupIcon" Size="16" /></span>
+            <span class="ciw-group-name">@Group.Name</span>
+            <span class="ciw-group-count" title="Workflows in this group">@Ws.VisibleCount(Group) @(Ws.VisibleCount(Group) == 1 ? "workflow" : "workflows")</span>
+            @if (!string.IsNullOrEmpty(Group.Description)) { <span class="ciw-desc">@Group.Description</span> }
+        </button>
+        <span class="ciw-group-health">
+            @if (Ws.GroupFailing(Group) is > 0 and var failing) { <span class="ciw-health bad" title="Workflows whose newest finished run failed">@failing failing</span> }
+            @if (Ws.GroupRecovered(Group) is > 0 and var recovered) { <span class="ciw-health good" title="Workflows that failed earlier and have since succeeded">@recovered recovered</span> }
+            @if (AllHealthy) { <span class="ciw-health quiet">all passing</span> }
+        </span>
     </div>
     @if (Open)
     {
         <div class="ciw-group-body">
-            @foreach (var a in Group.Workflows.Where(a => Ws.IsWorkflowVisible(a.Workflow)))
+            @if (Group.Workflows.Any(a => Ws.IsWorkflowVisible(a.Workflow)))
+            {
+                <div class="ciw-cols" aria-hidden="true"><span>Workflow</span><span class="c-status">Status</span><span class="c-runs">Runs</span><span class="c-ago">Last activity</span><span></span></div>
+            }
+            @foreach (var a in Ws.VisibleWorkflows(Group))
             {
                 <WorkflowNode Assigned="a" @key="a.Workflow.Id" />
             }
@@ -30,22 +38,23 @@
     [Parameter] public int Depth { get; set; }
 
     private bool Open => Ws.GroupOpen(Group);
-    private void OnKey(KeyboardEventArgs e) { if (e.Key is "Enter" or " ") Ws.ToggleGroup(Group); }
+    private bool AllHealthy => Group.AllWorkflows.Any() && Group.AllWorkflows.All(a => Ws.HealthOf(a.Workflow).Kind == HealthKind.Healthy);
 
-    private (string Icon, string Tone) GroupStyle
+    /// <summary>Restrained, name-based glyph; unknown names fall back to a neutral one.</summary>
+    private string GroupIcon
     {
         get
         {
             var n = Group.Name.ToLowerInvariant();
-            if (n.Contains("security")) return ("shield", "teal");
-            if (n.Contains("deploy")) return ("cloud-up", "green");
-            if (n.Contains("quality")) return ("diamond", "blue");
-            if (n.Contains("package")) return ("package", "grey");
-            if (n.Contains("doc")) return ("file", "purple");
-            if (n.Contains("agent")) return ("bot", "violet");
-            if (n.Contains("maint")) return ("wrench", "amber");
-            if (n.Contains("build") || n.Contains("test") || n.Contains("ci")) return ("hammer", "blue");
-            return ("layers", "grey");
+            if (n.Contains("security")) return "shield";
+            if (n.Contains("deploy")) return "cloud-up";
+            if (n.Contains("quality")) return "diamond";
+            if (n.Contains("package")) return "package";
+            if (n.Contains("doc")) return "file";
+            if (n.Contains("agent")) return "bot";
+            if (n.Contains("maint")) return "wrench";
+            if (n.Contains("build") || n.Contains("test") || n.Contains("ci")) return "hammer";
+            return "layers";
         }
     }
 }

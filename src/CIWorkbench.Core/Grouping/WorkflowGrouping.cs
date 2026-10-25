@@ -79,7 +79,7 @@ public static partial class WorkflowGroupResolver
         {
             var p = NormalizePath(g.Name);
             if (p.Length > 0 && !assignments.Any(a => a.Path.Equals(p, StringComparison.OrdinalIgnoreCase)))
-                warnings.Add($"Group \"{p}\" in .ciworkbench.yml matched no workflows.");
+                warnings.Add($"Group \"{p}\" in the central config matched no workflows.");
         }
         AddConfigDiagnostics(workflows, config, warnings);
         var roots = new List<WorkflowGroup>();

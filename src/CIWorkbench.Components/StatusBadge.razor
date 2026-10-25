@@ -1,0 +1,12 @@
+<span class="ciw-badge ciw-@Cls" data-state="@Cls" title="@Tooltip">
+    <i class="ciw-badge-dot @(State is RunState.InProgress ? "pulse" : "")" aria-hidden="true"></i>@Label
+</span>
+
+@code {
+    /// <summary>The real GitHub Actions state. Null renders "No runs" (never a made-up state).</summary>
+    [Parameter] public RunState? State { get; set; }
+    [Parameter] public string? Tooltip { get; set; }
+
+    private string Label => State is { } s ? Fmt.StateLabel(s) : "No runs";
+    private string Cls => State is { } s ? Fmt.StateClass(s) : "none";
+}

@@ -2,24 +2,42 @@
 @inject AppSession Session
 @inject NavigationManager Nav
 
-<nav class="sidebar" aria-label="Main">
-    <a class="nav @Cls(Section.Overview)" href="overview" aria-current="@Current(Section.Overview)"><Icon Name="home" Size="20" /> Overview</a>
-    <a class="nav @Cls(Section.Repositories)" href="repositories" aria-current="@Current(Section.Repositories)"><Icon Name="repo" Size="20" /> Repositories <span class="ciw-count">@Session.Repositories.Count@(Session.Discovery == DiscoveryState.Running ? "+" : "")</span></a>
-    <a class="nav @Cls(Section.Groups)" href="@GroupsHref" aria-current="@Current(Section.Groups)"><Icon Name="layers" Size="20" /> Workflow Groups</a>
-    <a class="nav @Cls(Section.Failures)" href="@FailuresHref" aria-current="@Current(Section.Failures)"><Icon Name="shield-alert" Size="20" /> Failure Series</a>
-    <a class="nav @Cls(Section.Settings)" href="settings" aria-current="@Current(Section.Settings)"><Icon Name="sliders" Size="20" /> Settings</a>
-    @if (Session.Recent.Count > 0)
+<nav class="sidebar" id="main-nav" aria-label="Main" data-collapsed="@(Collapsed ? "true" : "false")">
+    <div class="drawer-head"><span>Navigation</span><button type="button" class="topbtn" @onclick="() => OnClose.InvokeAsync()" aria-label="Close navigation" data-testid="drawer-close"><Icon Name="x" Size="20" /></button></div>
+    <a class="nav @Cls(Section.Overview)" href="overview" aria-current="@Current(Section.Overview)" title="@Tip("Overview")" aria-label="@Aria("Overview")"><Icon Name="home" Size="19" /><span class="nav-label">Overview</span></a>
+    <a class="nav @Cls(Section.Repositories)" href="repositories" aria-current="@Current(Section.Repositories)" title="@Tip("Repositories")" aria-label="@Aria("Repositories")"><Icon Name="repo" Size="19" /><span class="nav-label">Repositories</span> <span class="ciw-count">@Session.Repositories.Count@(Session.Discovery == DiscoveryState.Running ? "+" : "")</span></a>
+    <a class="nav @Cls(Section.Groups)" href="@GroupsHref" aria-current="@Current(Section.Groups)" title="@Tip("Workflow Groups")" aria-label="@Aria("Workflow Groups")"><Icon Name="layers" Size="19" /><span class="nav-label">Workflow Groups</span></a>
+    <a class="nav @Cls(Section.Failures)" href="@FailuresHref" aria-current="@Current(Section.Failures)" title="@Tip("Failure Series")" aria-label="@Aria("Failure Series")"><Icon Name="shield-alert" Size="19" /><span class="nav-label">Failure Series</span></a>
+    <a class="nav @Cls(Section.Settings)" href="settings" aria-current="@Current(Section.Settings)" title="@Tip("Settings")" aria-label="@Aria("Settings")"><Icon Name="sliders" Size="19" /><span class="nav-label">Settings</span></a>
+    @if (Recents.Count > 0)
     {
-        <h6>Recent repositories</h6>
-        @foreach (var r in Session.Recent)
-        {
-            <a class="recent @(Session.Selected.Equals(r) ? "current" : "")" href="repo/@r.Owner/@r.Name"><Icon Name="repo" Size="17" /> <span>@r.Name</span></a>
-        }
+        <div class="recent-list">
+            <h6>Recent repositories</h6>
+            @foreach (var r in Recents)
+            {
+                <a class="recent" href="repo/@r.Owner/@r.Name" title="@r.FullName"><Icon Name="repo" Size="16" /> <span>@r.Name</span></a>
+            }
+            <a class="all-repos" href="repositories">All repositories →</a>
+        </div>
     }
 </nav>
 
 @code {
     private enum Section { None, Overview, Repositories, Groups, Failures, Settings }
+
+    /// <summary>Icon-only mode: labels stay in the DOM (visually hidden) and every item gets a tooltip.</summary>
+    [Parameter] public bool Collapsed { get; set; }
+    /// <summary>Raised by the drawer's close button (phone layout only).</summary>
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private const int MaxRecents = 4;
+
+    /// <summary>The newest few repositories, without the one already shown in the top bar.</summary>
+    private IReadOnlyList<RepoRef> Recents => Session.Recent.Where(r => !r.Equals(Session.Selected)).Take(MaxRecents).ToList();
+
+    // Tooltips are always present: the sidebar also collapses on its own at narrow widths, where only icons remain visible.
+    private static string Tip(string label) => label;
+    private static string? Aria(string label) => null;
 
     private string GroupsHref => Session.Selected is { } s ? $"repo/{s.Owner}/{s.Name}" : "repositories";
     private string FailuresHref => Session.Selected is { } s ? $"repo/{s.Owner}/{s.Name}/failures" : "repositories";
@@ -34,7 +52,7 @@
             if (path.Equals("/overview", StringComparison.OrdinalIgnoreCase)) return Section.Overview;
             if (path.Equals("/repositories", StringComparison.OrdinalIgnoreCase)) return Section.Repositories;
             if (path.Equals("/settings", StringComparison.OrdinalIgnoreCase)) return Section.Settings;
-            if (path.StartsWith("/repo/", StringComparison.OrdinalIgnoreCase)) return path.EndsWith("/failures", StringComparison.OrdinalIgnoreCase) ? Section.Failures : Section.Groups;
+            if (path.StartsWith("/repo/", StringComparison.OrdinalIgnoreCase) || path.StartsWith("/repos/", StringComparison.OrdinalIgnoreCase)) return path.EndsWith("/failures", StringComparison.OrdinalIgnoreCase) ? Section.Failures : Section.Groups;
             return Section.None;
         }
     }

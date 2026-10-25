@@ -1,0 +1,127 @@
+@* Compact inline preview of one workflow: the newest run, what failed (if it did), the last success and a strip of recent statuses.
+   Everything shown comes from data already loaded for the workspace plus one bounded jobs request and the failure analysis; no logs are fetched here. *@
+@{
+    var w = Workflow;
+    var runs = Ws.RunsFor(w);
+    var now = Ws.Clock.GetUtcNow();
+    var health = Ws.HealthOf(w);
+    var latest = runs.FirstOrDefault();
+    var focus = Ws.PreviewRun(w);
+    var hasAnalysis = Ws.TryGetAnalysis(w.Path, out var analysis);
+    IReadOnlyList<JobInfo>? jobs = null;
+    var hasJobs = focus is not null && Ws.TryGetJobs(focus.Id, out jobs);
+    var failedJob = hasJobs ? jobs!.FirstOrDefault(j => j.State == RunState.Failure) : null;
+    var failedStep = failedJob?.Steps.FirstOrDefault(s => s.State == RunState.Failure)?.Name;
+    var series = focus is not null && hasAnalysis ? analysis!.Series.FirstOrDefault(s => s.Occurrences.Any(o => o.Run.Id == focus.Id)) : null;
+    var failing = health.Kind == HealthKind.FailingNow && focus is not null;
+    var lastOk = runs.FirstOrDefault(r => r.State == RunState.Success);
+    var recent = runs.Take(12).Reverse().ToList();
+    IReadOnlyList<JobInfo>? activeJobs = null;
+    var hasActiveJobs = latest is not null && latest.State.IsActive() && Ws.TryGetJobs(latest.Id, out activeJobs);
+}
+<div class="ciw-prev" id="ciw-prev-@w.Id" role="region" aria-label="Quick preview of @w.Name" data-testid="quick-preview">
+    @if (latest is null)
+    {
+        <p class="ciw-prev-note">No runs in the loaded history. Open the workflow to look further back.</p>
+    }
+    else
+    {
+        <div class="ciw-prev-grid">
+            <section class="ciw-prev-sec" aria-label="Latest run">
+                <h4>Latest run</h4>
+                <p class="ciw-prev-line">
+                    <a class="ciw-runlink" href="@Ws.RouteTable.Run(Ws.RepoRef, latest.Id)" data-action="open-run">#@latest.RunNumber</a>
+                    <StatusBadge State="latest.State" />
+                </p>
+                <p class="ciw-prev-sub">@latest.Branch · @latest.Event · @Fmt.Ago(latest.SortTime, now)@(latest.Duration is { } d ? $" · {Fmt.Duration(d)}" : "")</p>
+                @if (latest.State.IsActive())
+                {
+                    <p class="ciw-prev-sub">@(latest.State == RunState.Queued ? "Waiting for a runner" : "In progress")@(hasActiveJobs && activeJobs!.Count > 0 ? $" · {activeJobs.Count(j => j.State.IsCompleted())} of {activeJobs.Count} jobs finished" : "")</p>
+                }
+            </section>
+
+            @if (failing)
+            {
+                <section class="ciw-prev-sec bad" aria-label="What failed" data-testid="preview-failure">
+                    <h4>@(latest.Id == focus!.Id ? "What failed" : $"Newest finished run #{focus.RunNumber} failed")</h4>
+                    @if (failedJob is not null)
+                    {
+                        <p class="ciw-prev-line"><strong class="ciw-prev-job">@failedJob.Name</strong></p>
+                        @if (failedStep is not null) { <p class="ciw-prev-sub">Step <span class="ciw-prev-step ciw-fg">@failedStep</span></p> }
+                    }
+                    else if (series is not null)
+                    {
+                        <p class="ciw-prev-line"><strong class="ciw-prev-job">@series.JobDisplay</strong></p>
+                        <p class="ciw-prev-sub">Step <span class="ciw-prev-step ciw-fg">@series.StepDisplay</span></p>
+                    }
+                    else if (!hasJobs) { <p class="ciw-prev-sub" role="status">Loading the failed job…</p> }
+                    else { <p class="ciw-prev-sub">No failed job was reported for this run.</p> }
+
+                    @if (series is { CauseUnknown: false, LogUnavailable: false })
+                    {
+                        <code class="ciw-errline" title="Extracted from the log by pattern matching, not interpreted.">@AgentContext.Redact(series.RawSignature ?? series.Summary)</code>
+                    }
+                    else if (series is { LogUnavailable: true }) { <p class="ciw-prev-sub">Log unavailable (expired, deleted or not readable).</p> }
+                    else if (series is not null) { <p class="ciw-prev-sub">No error line could be extracted from the log tail.</p> }
+                    else if (Ws.Analyzing && !hasAnalysis) { <p class="ciw-prev-sub" role="status">Looking for the error…</p> }
+
+                    @if (series is { IsRecurring: true })
+                    {
+                        <p class="ciw-prev-sub bad">Recurring: @(series.Streak >= 2 ? $"{(series.StreakIsLowerBound ? "at least " : "")}{series.Streak} failures in a row" : $"seen in {series.Count} runs") · since @Fmt.Ago(series.FirstSeen, now)</p>
+                    }
+                </section>
+            }
+            else if (health.Kind == HealthKind.Recovered && health.Verdict is { } good)
+            {
+                <section class="ciw-prev-sec good" aria-label="Recovery">
+                    <h4>Recovered</h4>
+                    <p class="ciw-prev-sub">Run #@good.RunNumber succeeded @Fmt.Ago(good.SortTime, now) after an earlier failure.</p>
+                </section>
+            }
+            else if (health.Kind == HealthKind.Unknown)
+            {
+                <section class="ciw-prev-sec" aria-label="Health">
+                    <h4>Health</h4>
+                    <p class="ciw-prev-sub">No finished success or failure in the loaded history, so nothing can be claimed yet.</p>
+                </section>
+            }
+
+            @if (lastOk is not null && (failing || health.Kind == HealthKind.Unknown || health.Kind == HealthKind.Recovered))
+            {
+                <section class="ciw-prev-sec" aria-label="Last successful run">
+                    <h4>Last successful run</h4>
+                    <p class="ciw-prev-line"><a class="ciw-runlink" href="@Ws.RouteTable.Run(Ws.RepoRef, lastOk.Id)">#@lastOk.RunNumber</a> <span class="ciw-muted">@Fmt.Ago(lastOk.SortTime, now)@(lastOk.Duration is { } od ? $" · {Fmt.Duration(od)}" : "")</span></p>
+                </section>
+            }
+            else if (failing)
+            {
+                <section class="ciw-prev-sec" aria-label="Last successful run">
+                    <h4>Last successful run</h4>
+                    <p class="ciw-prev-sub">None in the loaded history.</p>
+                </section>
+            }
+
+            <section class="ciw-prev-sec" aria-label="Recent runs">
+                <h4>Recent runs <span class="ciw-muted">(oldest → newest)</span></h4>
+                <div class="ciw-strip" role="group" aria-label="@DotsLabel(recent)">
+                    @foreach (var r in recent) { <a class="ciw-sdot @Fmt.StateClass(r.State)" href="@Ws.RouteTable.Run(Ws.RepoRef, r.Id)" aria-label="Run #@r.RunNumber, @Fmt.StateLabel(r.State), @Fmt.Ago(r.SortTime, now)" data-tip="#@r.RunNumber · @Fmt.StateLabel(r.State) · @Fmt.Ago(r.SortTime, now)" data-action="open-run"></a> }
+                </div>
+            </section>
+        </div>
+    }
+    <div class="ciw-prev-actions">
+        <a class="ciw-btn primary" href="@Ws.RouteTable.Workflow(Ws.RepoRef, w.Id)" data-action="open-workflow-details">Open workflow details <Icon Name="chevron-right" Size="14" /></a>
+        @if (latest is not null)
+        {
+            <button type="button" class="ciw-btn" @onclick="() => Ws.SelectRun(focus ?? latest)" data-action="quick-inspect">Quick inspect @(failing ? "failed run" : "latest run")</button>
+        }
+    </div>
+</div>
+
+@code {
+    [CascadingParameter] internal RepositoryWorkspace Ws { get; set; } = default!;
+    [Parameter, EditorRequired] public WorkflowInfo Workflow { get; set; } = default!;
+
+    private static string DotsLabel(IReadOnlyList<WorkflowRunInfo> recent) =>
+        recent.Count == 0 ? "No runs" : $"Last {recent.Count} runs, oldest to newest: " + string.Join(", ", recent.Select(r => Fmt.StateLabel(r.State)));
+}

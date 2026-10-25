@@ -1,0 +1,24 @@
+@* Light / Dark / System as a segmented control: used in Settings and in the phone "more" menu. State lives in ThemeState. *@
+@implements IDisposable
+@inject ThemeState Theme
+
+<div class="ciw-segmented ciw-themeseg" role="group" aria-label="Colour theme" data-testid="theme-toggle">
+    @foreach (var (p, label, icon) in Options)
+    {
+        <button type="button" class="@(Theme.Preference == p ? "on" : "")" aria-pressed="@(Theme.Preference == p ? "true" : "false")" data-theme-option="@ThemeState.ToKey(p)"
+                @onclick="() => Theme.Preference = p"><Icon Name="@icon" Size="14" /> @label</button>
+    }
+</div>
+
+@code {
+    internal static readonly (ThemePreference, string, string)[] Options =
+    [
+        (ThemePreference.Light, "Light", "sun"),
+        (ThemePreference.Dark, "Dark", "moon"),
+        (ThemePreference.System, "System", "monitor"),
+    ];
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    protected override void OnInitialized() => Theme.Changed += OnChanged;
+    public void Dispose() => Theme.Changed -= OnChanged;
+}

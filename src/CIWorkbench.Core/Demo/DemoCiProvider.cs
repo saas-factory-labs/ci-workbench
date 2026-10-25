@@ -1,3 +1,4 @@
+using CIWorkbench.Core.Grouping;
 using CIWorkbench.Core.Models;
 
 namespace CIWorkbench.Core.Demo;
@@ -54,6 +55,9 @@ public sealed class DemoCiProvider : ICiProvider
 
     public Task<IReadOnlyList<WorkflowRunInfo>> ListWorkflowRunsAsync(RepoRef repo, long workflowId, int max, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<WorkflowRunInfo>>(_runs.TryGetValue(repo, out var r) ? r.Where(x => x.WorkflowId == workflowId).OrderByDescending(x => x.SortTime).Take(max).ToList() : []);
+
+    public Task<WorkflowRunInfo?> GetRunAsync(RepoRef repo, long runId, CancellationToken ct) =>
+        Task.FromResult(_runs.TryGetValue(repo, out var r) ? r.FirstOrDefault(x => x.Id == runId) : null);
 
     public Task<IReadOnlyList<JobInfo>> ListJobsAsync(RepoRef repo, long runId, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<JobInfo>>(_jobs.TryGetValue(runId, out var j) ? j : []);
@@ -232,7 +236,7 @@ public sealed class DemoCiProvider : ICiProvider
             ];
         }
         _runs[repo] = runs;
-        _files[(repo, ".ciworkbench.yml")] = """
+        _files[(repo, GroupConfigContract.PreferredPath)] = """
             groups:
               - name: CI
                 description: Build, test and publish the actor
