@@ -21,6 +21,11 @@ builder.AddServiceDefaults(o => o.StandardHttpResilience = false);
 
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 
+// Documentation screenshots only: CIWORKBENCH_DEMO_NOW=<ISO-8601 instant> pins the wall clock so synthetic timestamps ("3 h ago") are reproducible.
+// Registered before the component/GitHub defaults so it wins; timers and delays still use the real system clock.
+if (DateTimeOffset.TryParse(builder.Configuration["CIWORKBENCH_DEMO_NOW"], System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var pinnedNow))
+    builder.Services.AddSingleton<TimeProvider>(new PinnedClock(pinnedNow));
+
 // Reusable UI state + the read-only GitHub provider. The token (GitHub:Token) is read server-side only.
 builder.Services.AddCIWorkbenchComponents();
 builder.Services.AddCIWorkbenchGitHub(builder.Configuration);
@@ -78,3 +83,9 @@ app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.Run();
 
 public partial class Program;
+
+/// <summary>System time provider whose <see cref="GetUtcNow"/> is fixed; used only when CIWORKBENCH_DEMO_NOW is set.</summary>
+internal sealed class PinnedClock(DateTimeOffset now) : TimeProvider
+{
+    public override DateTimeOffset GetUtcNow() => now;
+}
