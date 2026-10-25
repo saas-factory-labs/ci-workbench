@@ -24,6 +24,8 @@ dotnet run --project src/CIWorkbench.Web --urls http://localhost:5290
 
 Open <http://localhost:5290>: it goes straight to the workflow workspace of a synthetic 39-workflow monorepo. Demo mode uses fully synthetic data (that monorepo and a scraper actor with two recurring failure series) and is labelled as such.
 
+Routes, responsive behaviour and how to try the demo on a phone: [docs/development/responsive-and-mobile-testing.md](docs/development/responsive-and-mobile-testing.md).
+
 ## Live GitHub (read-only)
 
 Create a **fine-grained personal access token** with *read-only* `Metadata`, `Actions` and `Contents` permissions (details: [docs/development/github-permissions.md](docs/development/github-permissions.md)), then supply it **server-side**:

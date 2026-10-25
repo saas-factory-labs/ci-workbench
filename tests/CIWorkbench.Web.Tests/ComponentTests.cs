@@ -72,18 +72,30 @@ public class ComponentTests : BunitContext
     }
 
     [Fact]
-    public async Task Actor_repo_shows_banner_two_plus_series_and_selecting_a_run_raises_callback()
+    public async Task Actor_repo_shows_attention_summary_and_a_failing_workflow_previews_without_a_run_table()
     {
         RunSelection? picked = null;
         var cut = await RenderWorkspace(DemoCiProvider.ActorRepo, p => p.Add(c => c.OnRunSelected, EventCallback.Factory.Create<RunSelection>(this, s => picked = s)));
         cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-testid=failure-banner]")));
-        cut.WaitForAssertion(() => Assert.Equal(2, cut.FindAll("[data-series]").Count));
+        Assert.Empty(cut.FindAll(".ciw-wf.open"));                                          // nothing expands by itself, even in a tiny repository
+        cut.Find("[data-health=failingnow] .ciw-wf-toggle").Click();
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-testid=preview-failure]")));
+        Assert.Empty(cut.FindAll("[data-testid=quick-preview] table"));                     // a preview is never a run table
+        cut.Find("[data-action=quick-inspect]").Click();
+        Assert.NotNull(picked);
+        Assert.Equal(DemoCiProvider.ActorRepo, picked!.Repo);
+    }
+
+    [Fact]
+    public async Task Workflow_details_failure_tab_lists_two_recurring_series_and_one_oneoff()
+    {
+        var provider = Services.GetRequiredService<ICiProvider>();
+        var failing = (await provider.ListRecentRunsAsync(DemoCiProvider.ActorRepo, 100, default)).First(r => r.State == RunState.Failure).WorkflowId;
+        var cut = Render<WorkflowDetails>(p => { p.Add(c => c.Repo, DemoCiProvider.ActorRepo); p.Add(c => c.WorkflowId, failing); p.Add(c => c.Query, new WorkflowDetailsQuery(Tab: "failures")); });
+        cut.WaitForAssertion(() => Assert.Equal(2, cut.FindAll("[data-series]").Count), TimeSpan.FromSeconds(10));
         Assert.Single(cut.FindAll("[data-oneoff]"));
         cut.Find("[data-series]").Click();
         Assert.NotEmpty(cut.FindAll(".ciw-series-body"));
-        cut.Find("tr.ciw-row").Click();
-        Assert.NotNull(picked);
-        Assert.Equal(DemoCiProvider.ActorRepo, picked!.Repo);
     }
 
     private async Task<WorkflowRunInfo> FailedActorRun()
@@ -363,28 +375,87 @@ public class ShellTests : BunitContext
         Assert.Equal("auto", cut.Find(".shell").GetAttribute("data-sidebar"));
     }
 
-    [Fact]
-    public async Task Escape_collapses_the_inspector_and_keeps_the_selection()
+    private async Task<WorkflowRunInfo> SelectARun(IRenderedComponent<CIWorkbench.Web.Components.Layout.MainLayout> cut)
     {
-        Arrange();
-        var prefs = Services.GetRequiredService<UiPreferences>();
-        var cut = Render<CIWorkbench.Web.Components.Layout.MainLayout>(p => p.Add(c => c.Body, (RenderFragment)(b => b.AddContent(0, "body"))));
-        prefs.InspectorOpen = true;
-        cut.WaitForAssertion(() => Assert.Equal("open", cut.Find(".shell").GetAttribute("data-inspector")));
-        await cut.InvokeAsync(() => cut.Instance.OnEscape());
-        cut.WaitForAssertion(() => Assert.Equal("closed", cut.Find(".shell").GetAttribute("data-inspector")));
+        Services.GetRequiredService<NavigationManager>().NavigateTo("repo/example-org/review-scraper-actor");
+        var run = (await new DemoCiProvider(new FixedClock(new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero))).ListRecentRunsAsync(DemoCiProvider.ActorRepo, 10, default)).First(r => r.State == RunState.Failure);
+        await cut.InvokeAsync(() => Services.GetRequiredService<InspectorState>().Select(new RunSelection(DemoCiProvider.ActorRepo, run)));
+        return run;
     }
 
     [Fact]
-    public void Inspector_toggle_opens_and_collapses_the_pane()
+    public async Task Inspector_is_absent_by_default_opens_on_selection_closes_on_escape_and_keeps_the_selection()
     {
         Arrange();
         var cut = Render<CIWorkbench.Web.Components.Layout.MainLayout>(p => p.Add(c => c.Body, (RenderFragment)(b => b.AddContent(0, "body"))));
         Assert.Equal("closed", cut.Find(".shell").GetAttribute("data-inspector"));
-        cut.Find("[data-testid=inspector-toggle]").Click();
-        Assert.Equal("open", cut.Find(".shell").GetAttribute("data-inspector"));
-        cut.Find("[data-testid=inspector-toggle]").Click();
-        Assert.Equal("closed", cut.Find(".shell").GetAttribute("data-inspector"));
+        Assert.Empty(cut.FindAll("[data-testid=inspector-pane]"));                           // no permanent rail or column
+        await SelectARun(cut);
+        cut.WaitForAssertion(() => Assert.Equal("open", cut.Find(".shell").GetAttribute("data-inspector")));
+        Assert.NotEmpty(cut.FindAll("[data-testid=quick-inspector]"));
+        await cut.InvokeAsync(() => cut.Instance.OnEscape());
+        cut.WaitForAssertion(() => Assert.Equal("closed", cut.Find(".shell").GetAttribute("data-inspector")));
+        Assert.NotNull(Services.GetRequiredService<InspectorState>().Selection);
+    }
+
+    [Fact]
+    public async Task Inspector_can_be_closed_and_reopened_from_the_top_bar()
+    {
+        Arrange();
+        var cut = Render<CIWorkbench.Web.Components.Layout.MainLayout>(p => p.Add(c => c.Body, (RenderFragment)(b => b.AddContent(0, "body"))));
+        await SelectARun(cut);
+        cut.WaitForAssertion(() => Assert.Equal("open", cut.Find(".shell").GetAttribute("data-inspector")));
+        cut.WaitForAssertion(() => cut.Find("[data-testid=inspector-close]").Click());
+        cut.WaitForAssertion(() => Assert.Equal("closed", cut.Find(".shell").GetAttribute("data-inspector")));
+        cut.WaitForAssertion(() => cut.Find("[data-testid=inspector-toggle]").Click());
+        cut.WaitForAssertion(() => Assert.Equal("open", cut.Find(".shell").GetAttribute("data-inspector")));
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-action=open-run-details]")));                     // the quick inspector always links to the full page
+    }
+
+    [Fact]
+    public async Task Navigating_closes_overlays_but_keeps_the_selection_for_the_way_back()
+    {
+        Arrange();
+        var cut = Render<CIWorkbench.Web.Components.Layout.MainLayout>(p => p.Add(c => c.Body, (RenderFragment)(b => b.AddContent(0, "body"))));
+        var run = await SelectARun(cut);
+        cut.WaitForAssertion(() => Assert.Equal("open", cut.Find(".shell").GetAttribute("data-inspector")));
+        Services.GetRequiredService<NavigationManager>().NavigateTo($"repo/example-org/review-scraper-actor/runs/{run.Id}");
+        cut.WaitForAssertion(() => Assert.Equal("closed", cut.Find(".shell").GetAttribute("data-inspector")));
+        Assert.Equal(run.Id, Services.GetRequiredService<InspectorState>().Selection?.Run.Id);
+    }
+
+    [Fact]
+    public async Task Phone_navigation_is_a_drawer_and_only_one_overlay_is_open_at_a_time()
+    {
+        Arrange();
+        var cut = Render<CIWorkbench.Web.Components.Layout.MainLayout>(p => p.Add(c => c.Body, (RenderFragment)(b => b.AddContent(0, "body"))));
+        await cut.InvokeAsync(() => cut.Instance.OnViewport(true, false));
+        Assert.Equal("closed", cut.Find(".shell").GetAttribute("data-nav"));
+        Assert.Equal("false", cut.Find("[data-testid=sidebar-toggle]").GetAttribute("aria-expanded"));
+        cut.Find("[data-testid=sidebar-toggle]").Click();
+        Assert.Equal("open", cut.Find(".shell").GetAttribute("data-nav"));
+        Assert.Equal("true", cut.Find("[data-testid=sidebar-toggle]").GetAttribute("aria-expanded"));
+        Assert.NotEmpty(cut.FindAll("[data-testid=scrim]"));
+        cut.Find("[data-testid=more-toggle]").Click();                                       // opening the actions menu closes the drawer
+        Assert.Equal("open", cut.Find(".shell").GetAttribute("data-more"));
+        Assert.Equal("closed", cut.Find(".shell").GetAttribute("data-nav"));
+        await cut.InvokeAsync(() => cut.Instance.OnEscape());
+        Assert.Equal("closed", cut.Find(".shell").GetAttribute("data-more"));
+        cut.Find("[data-testid=sidebar-toggle]").Click();
+        Assert.Equal("open", cut.Find(".shell").GetAttribute("data-nav"));
+        Services.GetRequiredService<NavigationManager>().NavigateTo("settings");             // following a link closes the drawer
+        cut.WaitForAssertion(() => Assert.Equal("closed", cut.Find(".shell").GetAttribute("data-nav")));
+    }
+
+    [Fact]
+    public async Task Phone_repository_picker_lists_full_names_because_the_organisation_picker_is_hidden()
+    {
+        Arrange();
+        var session = Services.GetRequiredService<AppSession>();
+        await session.StartDiscoveryAsync();
+        var cut = Render<CIWorkbench.Web.Components.Layout.MainLayout>(p => p.Add(c => c.Body, (RenderFragment)(b => b.AddContent(0, "body"))));
+        await cut.InvokeAsync(() => cut.Instance.OnViewport(true, false));
+        Assert.All(cut.FindAll("[data-testid=repo-select] option").Where(o => !string.IsNullOrEmpty(o.GetAttribute("value"))), o => Assert.Contains("/", o.TextContent));
     }
 
     [Fact]
@@ -458,13 +529,13 @@ public class HistoryWindowTests : BunitContext
         // MaxRuns=60 truncates the shared window (the fixture has ~246 runs), so most workflows hold only 0-2 runs in it.
         var cut = Render<RepositoryWorkspace>(p => { p.Add(c => c.Repo, DemoCiProvider.Monorepo); p.Add(c => c.MaxRuns, 60); p.Add(c => c.AutoRefresh, false); });
         await cut.WaitForAssertionAsync(() => Assert.NotEmpty(cut.FindAll("[data-group]")), TimeSpan.FromSeconds(10));
-        await Task.Delay(400);                                          // let the first-view "open the best workflow" step finish
-        Assert.True(spy.WorkflowRunCalls <= 1);                         // overview itself never fetches per-workflow history; only the one opened workflow may
+        await Task.Delay(400);
+        Assert.Equal(0, spy.WorkflowRunCalls);                          // the overview never fetches per-workflow history
         var before = spy.WorkflowRunCalls;
         if (cut.FindAll("[data-action=collapse-all]").Count > 0) cut.Find("[data-action=collapse-all]").Click();
         cut.Find("[data-action=expand-all]").Click();
         // Open three workflows (the first-view "best" one may already have its history cached).
-        for (var i = 0; i < 3; i++) { cut.FindAll("[data-workflow] .ciw-wf-head")[i].Click(); await Task.Delay(150); }
+        for (var i = 0; i < 3; i++) { cut.FindAll("[data-workflow] .ciw-wf-toggle")[i].Click(); await Task.Delay(150); }
         Assert.InRange(spy.WorkflowRunCalls - before, 1, 3);                 // at most one bounded request per opened workflow, and the cache is used
     }
 }
