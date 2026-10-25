@@ -8,14 +8,18 @@ CIWorkbench Community is **source-available under the Apache License 2.0 terms w
 
 ### Contributor rights and CLA
 
-Contributors retain copyright in their own work. Because CIWorkbench Community and separately licensed CIWorkbench Pro may share eligible code, contributions intended for inclusion require the **separate Contributor License Agreement** in [CLA.md](CLA.md), which grants the project maintainer permission to relicense contributions, including in commercial editions, without requiring copyright assignment.
+Contributors keep copyright in their original work. Code and documentation contributions intended for inclusion require acceptance of the [CIWorkbench Contributor License Agreement v1.0](CLA.md), which grants the maintainer non-exclusive rights to use and relicense contributed code in both Community and commercial Pro editions.
 
-- Review `CLA.md` before submitting code; raise questions before agreeing.
-- The PR template asks for explicit acknowledgement of the CLA. Maintainers must **manually verify and record acceptance**; a checked box alone is not an automatically implemented e-signature or a CLA bot.
-- Do not merge a third-party contribution until ownership and the necessary permissions/acceptance are confirmed.
-- Do not submit employer-owned code without authorization, or third-party code unless its license is compatible and its provenance documented.
-- A CLA is **not** required merely to open issues, give feedback or test the app.
-- The final CLA and licensor's legal identity should receive legal review before broad external contribution intake.
+**How to contribute:**
+
+1. Read [CLA.md](CLA.md) and open a focused pull request.
+2. **Post the individual acceptance statement from CLA §7 as a PR comment** (checking the PR template box is not sufficient).
+3. If an employer or organization owns the work, obtain acceptance from an authorized representative under CLA §7B before merge.
+4. Ensure all contributors and co-authors are covered; identify any third-party licenses.
+5. A maintainer reviews consent and authority and records a verification comment with links before merge.
+
+No CLA is needed for issue reports, general suggestions, or usability feedback. CLA acceptance is manually recorded on GitHub; no CLA bot is currently installed. Do not publish private employer authorization documents in a public PR.
+
 
 ## Workflow
 
