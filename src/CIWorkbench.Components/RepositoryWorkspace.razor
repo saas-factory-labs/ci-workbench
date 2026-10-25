@@ -1,5 +1,7 @@
 @implements IAsyncDisposable
-@inject ICiProvider Provider
+@inject CachedCi Provider
+@inject CiwRoutes Routes
+@inject IJSRuntime JS
 @inject UiPreferences Prefs
 @inject WorkspaceSignals Signals
 @inject TimeProvider Time
@@ -11,7 +13,7 @@
         <div class="ciw-panel ciw-error" role="alert">
             <h3>Could not load @Repo</h3>
             <p>@_error</p>
-            <button type="button" class="ciw-btn" @onclick="ReloadAsync">Retry</button>
+            <button type="button" class="ciw-btn" @onclick="RetryAsync">Retry</button>
         </div>
     }
     else if (_workflows is null)
@@ -61,19 +63,27 @@
             <div class="ciw-notice warn" role="status">⚠ @w</div>
         }
 
-        @if (TotalSeries > 0 && !_bannerDismissed)
+        @if (AttentionList.Count > 0)
         {
-            <div class="ciw-banner" role="status" data-testid="failure-banner">
-                <span class="ciw-banner-icon" aria-hidden="true"><Icon Name="shield-alert" Size="18" /></span>
-                <div class="ciw-banner-text">
-                    <strong>Recurring failures detected@(BannerWorkflows)</strong>
-                    <span>@TotalSeries failure @(TotalSeries == 1 ? "series" : "series") across @DistinctFailedRuns failed runs in the loaded history.</span>
-                </div>
-                @if (View != WorkspaceView.Failures && OnViewFailures.HasDelegate)
-                {
-                    <button type="button" class="ciw-btn sm" @onclick="() => OnViewFailures.InvokeAsync()" data-action="view-failures">View failure series</button>
-                }
-                <button type="button" class="ciw-iconbtn" aria-label="Dismiss" @onclick="() => _bannerDismissed = true"><Icon Name="x" Size="16" /></button>
+            <div class="ciw-attn" role="status" data-testid="failure-banner">
+                <span class="ciw-attn-icon" aria-hidden="true"><Icon Name="shield-alert" Size="16" /></span>
+                <p class="ciw-attn-text">
+                    <strong>@AttentionList.Count @(AttentionList.Count == 1 ? "workflow needs" : "workflows need") attention</strong>
+                    <span class="ciw-attn-list">
+                        @foreach (var w in AttentionList.Take(3))
+                        {
+                            <a class="ciw-attn-link" href="@Routes.Workflow(Repo, w.Id)" data-attn-workflow="@w.Id">@w.Name@if (HealthOf(w).Recurring) { <em>recurring</em> }</a>
+                        }
+                        @if (AttentionList.Count > 3) { <span class="ciw-muted">+@(AttentionList.Count - 3) more</span> }
+                    </span>
+                </p>
+                <span class="ciw-attn-actions">
+                    @if (_filter != "Attention") { <button type="button" class="ciw-btn sm" @onclick="@(() => SetFilter("Attention"))" data-action="show-attention">Show only these</button> }
+                    @if (TotalSeries > 0 && View != WorkspaceView.Failures && OnViewFailures.HasDelegate)
+                    {
+                        <button type="button" class="ciw-btn sm" @onclick="() => OnViewFailures.InvokeAsync()" data-action="view-failures">Failure series</button>
+                    }
+                </span>
             </div>
         }
 
@@ -142,7 +152,7 @@
             }
             @if (_runs.Count >= MaxRuns)
             {
-                <p class="ciw-footnote ciw-muted">Based on the @MaxRuns most recent runs. Open a workflow and choose “Load more history” for older runs.</p>
+                <p class="ciw-footnote ciw-muted">Based on the @MaxRuns most recent runs. Open a workflow’s details to load its older runs.</p>
             }
         }
         else
@@ -213,9 +223,9 @@
     private RunSummary _summary = new(0, 0, 0, 0);
     private string? _error;
     private string _stage = "Loading workflows…";
-    private bool _loading, _analyzing, _resolvingGroups, _bannerDismissed, _bestOpened;
+    private bool _loading, _analyzing, _resolvingGroups, _bestOpened, _scrollRestored;
     private int _commentsDone, _commentsTotal;
-    private string _filter = "All";
+    private string _filter { get => Prefs.StatusFilter; set => Prefs.StatusFilter = value; }
     private DateTimeOffset _lastRefresh = DateTimeOffset.MinValue;
     private RepoRef _loadedRepo;
     private CancellationTokenSource _cts = new();
@@ -240,6 +250,9 @@
             return parts.Count == 0 ? $"All {a.Total} workflows healthy" : string.Join(" · ", parts) + $" · of {a.Total} workflows";
         }
     }
+    /// <summary>Workflows failing right now (never a stale or recovered one), recurring first.</summary>
+    private List<WorkflowInfo> AttentionList => _workflows!.Where(w => HealthOf(w).NeedsAttention)
+        .OrderBy(w => HealthOf(w).Priority).ThenBy(w => w.Name, StringComparer.OrdinalIgnoreCase).ToList();
     private int TotalSeries => _series.Values.Sum(a => a.Recurring.Count);
     private int DistinctFailedRuns => _series.Values.SelectMany(a => a.Recurring).SelectMany(s => s.Occurrences).Select(o => o.Run.Id).Distinct().Count();
     private string RangeText => _runs.Count == 0 ? "no runs" : $"{_runs.Min(r => r.SortTime).ToString("MMM d", System.Globalization.CultureInfo.InvariantCulture)} – {_runs.Max(r => r.SortTime).ToString("MMM d", System.Globalization.CultureInfo.InvariantCulture)}";
@@ -266,7 +279,18 @@
     {
         if (_loadedRepo.Equals(Repo) && _workflows is not null) return;
         _loadedRepo = Repo;
+        if (Prefs.FilterRepo is not { } fr || !fr.Equals(Repo)) { Prefs.FilterRepo = Repo; _filter = "All"; }
         await ReloadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_workflows is null || _scrollRestored) return;
+        _scrollRestored = true;
+        try { await JS.InvokeVoidAsync("ciw.restoreScroll"); }
+        catch (JSException) { }
+        catch (InvalidOperationException) { }
+        catch (JSDisconnectedException) { }
     }
 
     private void OnSignalsChanged() => InvokeAsync(StateHasChanged);
@@ -274,13 +298,15 @@
 
     // ----------------------------------------------------------------------------------- loading
 
+    private Task RetryAsync() { Provider.Clear(); return ReloadAsync(); }
+
     private async Task ReloadAsync()
     {
         _cts.Cancel(); _cts.Dispose(); _cts = new CancellationTokenSource();
         var ct = _cts.Token;
         _workflows = null; _error = null; _runs = []; _series.Clear(); _analysisKey.Clear(); _history.Clear(); _historyTruncated.Clear(); _jobs.Clear();
-        _warnings = []; _configMessages = []; _bannerDismissed = false; _commentGroups = []; _config = new(); _grouping = new([], []); _bestOpened = false;
-        _loading = true; _stage = "Loading workflows…"; Signals.ReportLoading(true);
+        _warnings = []; _configMessages = []; _commentGroups = []; _config = new(); _grouping = new([], []); _bestOpened = false;
+        _loading = true; _scrollRestored = false; _stage = "Loading workflows…"; Signals.ReportLoading(true);
         var repo = Repo;
         try
         {
@@ -306,8 +332,7 @@
             var analyze = Provider.IsDemo || _workflows.Count <= 3 || View == WorkspaceView.Failures;
             if (analyze) await AnalyzeCandidatesAsync(ct);
             await groupsTask;
-            if (_workflows.Count <= 3) { foreach (var w in _workflows) await EnsureWorkflowDetailsAsync(w, ct); }   // small repo: everything is open, so load job health too
-            else await OpenBestWorkflowAsync(ct);
+            if (_workflows.Count > 3) await OpenBestGroupAsync(ct);
             StartPolling();
         }
         catch (OperationCanceledException) { }
@@ -371,15 +396,14 @@
     {
         if (_workflows!.Count > 3 || HasRepoState) return;
         foreach (var g in Walk(_grouping.Groups)) Prefs.SetExpanded(GroupKey(g), true);
-        foreach (var w in _workflows) Prefs.SetExpanded(WorkflowKey(w), true);
         _bestOpened = true;
     }
 
     /// <summary>
-    /// First visit to a larger repository: open the group and workflow that best demonstrate the product
-    /// (most recurring failures, else the first failing workflow). Never overrides state the user already has.
+    /// First visit to a larger repository: open only the group that holds the most urgent workflow (most recurring failures, else the first failing one).
+    /// Workflows themselves stay collapsed. Never overrides state the user already has.
     /// </summary>
-    private async Task OpenBestWorkflowAsync(CancellationToken ct)
+    private async Task OpenBestGroupAsync(CancellationToken ct)
     {
         if (_bestOpened || _workflows is null || View != WorkspaceView.Groups) return;
         _bestOpened = true;
@@ -390,9 +414,8 @@
         var assigned = _grouping.AllWorkflows.First(a => a.Workflow.Id == best.Id);
         var path = "";
         foreach (var part in assigned.GroupPath.Split('/')) { path = path.Length == 0 ? part : path + "/" + part; Prefs.SetExpanded($"group|{Repo}|{path}", true); }
-        Prefs.SetExpanded(WorkflowKey(best), true);
-        await EnsureWorkflowDetailsAsync(best, ct);
         await InvokeAsync(StateHasChanged);
+        await Task.CompletedTask;
     }
 
     private static IEnumerable<WorkflowGroup> Walk(IEnumerable<WorkflowGroup> gs) => gs.SelectMany(g => new[] { g }.Concat(Walk(g.Children)));
@@ -422,6 +445,7 @@
         try
         {
             Signals.ReportLoading(true);
+            Provider.InvalidateRuns(Repo);
             _runs = await Provider.ListRecentRunsAsync(Repo, MaxRuns, ct);
             _workflows = WithOrphans(_workflows.Where(w => !w.Name.EndsWith("(not in workflow list)")).ToList(), _runs);
             Recompute();
@@ -554,8 +578,10 @@
                 var more = await Provider.ListWorkflowRunsAsync(Repo, w.Id, 30, ct);
                 _history[w.Id] = more; _historyTruncated[w.Id] = more.Count >= 30;
             }
-            var latest = RunsFor(w).FirstOrDefault(r => r.State.IsCompleted());
-            if (latest is not null && !_jobs.ContainsKey(latest.Id)) { _jobs[latest.Id] = await Provider.ListJobsAsync(Repo, latest.Id, ct); await InvokeAsync(StateHasChanged); }
+            var focus = PreviewRun(w);
+            if (focus is not null && !_jobs.ContainsKey(focus.Id)) { _jobs[focus.Id] = await Provider.ListJobsAsync(Repo, focus.Id, ct); await InvokeAsync(StateHasChanged); }
+            var active = RunsFor(w).FirstOrDefault(r => r.State.IsActive());
+            if (active is not null && RunsFor(w).FirstOrDefault() == active) { _jobs[active.Id] = await Provider.ListJobsAsync(Repo, active.Id, ct); await InvokeAsync(StateHasChanged); }
             if (!_series.ContainsKey(w.Path) && RunsFor(w).Any(r => r.State == RunState.Failure))
             {
                 _analyzing = true; await InvokeAsync(StateHasChanged);
@@ -565,6 +591,14 @@
         catch (OperationCanceledException) { }
         catch (CiProviderException ex) { _warnings.Add($"{w.Name}: {ex.Message}"); }
         finally { _analyzing = false; }
+    }
+
+    /// <summary>The run the quick preview explains: the newest finished run on the failing verdict, otherwise the newest completed run.</summary>
+    internal WorkflowRunInfo? PreviewRun(WorkflowInfo w)
+    {
+        var h = HealthOf(w);
+        if (h.Kind == HealthKind.FailingNow && h.Verdict is { } v) return v;
+        return RunsFor(w).FirstOrDefault(r => r.State.IsCompleted());
     }
 
     internal async Task ToggleWorkflow(WorkflowInfo w)
@@ -598,6 +632,7 @@
     // ----------------------------------------------------------------------------------- node helpers (used by GroupNode / WorkflowNode)
 
     internal bool IsDemo => Provider.IsDemo;
+    internal CiwRoutes RouteTable => Routes;
     internal RepoRef RepoRef => Repo;
     internal UiPreferences Preferences => Prefs;
     internal TimeProvider Clock => Time;

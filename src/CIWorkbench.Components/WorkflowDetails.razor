@@ -1,0 +1,473 @@
+@* Level 2: one workflow. Runs, recurring failure series and per-job history, all loaded for this workflow only. Hosts supply the URL plumbing through Query/OnQueryChanged. *@
+@implements IAsyncDisposable
+@inject CachedCi Provider
+@inject CiwRoutes Routes
+@inject TimeProvider Time
+@inject UiPreferences Prefs
+@inject WorkspaceSignals Signals
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<section class="ciw-details ciw-wfd" aria-busy="@(_state == LoadState.Loading ? "true" : "false")" data-testid="workflow-details">
+    @switch (_state)
+    {
+        case LoadState.Loading:
+            <h1 class="sr-only">Loading workflow</h1>
+            <div class="ciw-panel ciw-loading" role="status">
+                <div class="ciw-skel w40"></div><div class="ciw-skel w80"></div><div class="ciw-skel w60"></div><div class="ciw-skel w80"></div>
+                <p class="ciw-muted">Loading workflow history…</p>
+            </div>
+            break;
+        case LoadState.Error:
+            <h1 class="sr-only">Workflow could not be loaded</h1>
+            @Crumbs
+            <div class="ciw-panel ciw-error" role="alert">
+                <h3>Could not load this workflow</h3>
+                <p>@_error</p>
+                <button type="button" class="ciw-btn" @onclick="RetryAsync">Retry</button>
+                <a class="ciw-btn" href="@Routes.Repository(Repo)">Back to repository</a>
+            </div>
+            break;
+        case LoadState.NotFound:
+            <h1 class="sr-only">Workflow not found</h1>
+            @Crumbs
+            <div class="ciw-panel" role="status" data-testid="workflow-not-found">
+                <h3>Workflow not found</h3>
+                <p class="ciw-muted">No workflow with id <span class="ciw-mono">@WorkflowId</span> exists in @Repo, or it is not visible with the current access.</p>
+                <a class="ciw-btn" href="@Routes.Repository(Repo)">Back to repository</a>
+            </div>
+            break;
+        default:
+        {
+            var wf = _wf!;
+            var now = Time.GetUtcNow();
+            var latest = _runs.FirstOrDefault();
+            var health = Health;
+            var lastOk = _runs.FirstOrDefault(r => r.State == RunState.Success);
+            var success = Kpis.SuccessRate(_runs);
+            var dur = Kpis.AverageDuration(_runs);
+            @Crumbs
+            <header class="ciw-dhead">
+                <div class="ciw-dtitlerow">
+                    <h1 class="ciw-dtitle" tabindex="-1">@wf.Name</h1>
+                    <StatusBadge State="latest?.State" Tooltip="@(latest is null ? "No runs loaded" : $"Latest run #{latest.RunNumber}")" />
+                    @if (health.Kind == HealthKind.FailingNow && health.Recurring && !health.Stale) { <span class="ciw-flag bad">Recurring</span> }
+                    else if (health.Kind == HealthKind.FailingNow && !health.Stale) { <span class="ciw-flag bad">Failing now</span> }
+                    else if (health.Kind == HealthKind.FailingNow) { <span class="ciw-flag">Stale failure</span> }
+                    else if (health.Kind == HealthKind.Recovered) { <span class="ciw-flag good">Recovered</span> }
+                    else if (health.Kind == HealthKind.Unknown) { <span class="ciw-flag">Not enough history</span> }
+                    @if (!wf.IsActive) { <span class="ciw-flag">disabled</span> }
+                </div>
+                <p class="ciw-dmeta" data-testid="workflow-meta">
+                    <span class="ciw-mono">@wf.Path</span>
+                    <span><strong>@_runs.Count</strong>@(_truncated ? "+" : "") @(_runs.Count == 1 ? "run" : "runs") loaded</span>
+                    <span>Latest run <strong>@Fmt.Ago(latest?.SortTime, now)</strong></span>
+                    <span>Success rate <strong>@Fmt.Percent(success.Rate)</strong></span>
+                    <span>Avg duration <strong>@Fmt.Duration(dur.Average)</strong></span>
+                    <span>Last success <strong>@(lastOk is null ? "none loaded" : Fmt.Ago(lastOk.SortTime, now))</strong></span>
+                </p>
+                <div class="ciw-dactions">
+                    @if (SafeUrl(wf.HtmlUrl) is { } wurl) { <a class="ciw-btn" href="@wurl" target="_blank" rel="noopener noreferrer"><Icon Name="github" Size="16" /> GitHub</a> }
+                </div>
+            </header>
+
+            @if (_warning is not null) { <div class="ciw-notice warn" role="status">⚠ @_warning</div> }
+            <div class="ciw-tabs scroll" role="tablist" aria-label="Workflow sections">
+                @foreach (var t in Tabs)
+                {
+                    <button type="button" role="tab" id="wfd-tab-@t" class="ciw-tab @(_tab == t ? "on" : "")" aria-selected="@(_tab == t ? "true" : "false")" aria-controls="wfd-panel" tabindex="@(_tab == t ? 0 : -1)"
+                            @onclick="() => SelectTabAsync(t)" @onkeydown="e => OnTabKey(e, t)" data-tab="@t">@TabLabel(t)</button>
+                }
+            </div>
+
+            <div id="wfd-panel" role="tabpanel" aria-labelledby="wfd-tab-@_tab" class="ciw-dpanel">
+            @switch (_tab)
+            {
+                case "failures":
+                    @if (_analysis is null && _analyzing) { <div class="ciw-notice info" role="status">Analyzing the newest failed runs (bounded to @FailureAnalyzer.DefaultMaxRuns)…</div> }
+                    else if (_analysis is null && !_runs.Any(r => r.State == RunState.Failure))
+                    {
+                        <div class="ciw-empty" data-testid="no-failures">No failed runs in the loaded history, so there are no failure series.</div>
+                    }
+                    else if (_analysis is null)
+                    {
+                        <div class="ciw-empty"><p>No failure analysis has run yet.</p><button type="button" class="ciw-btn" @onclick="AnalyzeAsync" data-action="analyze">Analyze failures</button></div>
+                    }
+                    else
+                    {
+                        <p class="ciw-scope">Inspected @_analysis.RunsInspected of @_analysis.RunsAvailable failed runs@(_analysis.Truncated ? " · older failures not inspected" : ""). A series is consecutive failures with the same error pattern.</p>
+                        <FailureSeriesList Repo="Repo" Series="_analysis.Series" Runs="_runs" OnRunSelected="OpenSelection" />
+                    }
+                    break;
+                case "jobs":
+                    @if (_jobsLoading) { <div class="ciw-notice info" role="status">Loading jobs of the newest finished runs…</div> }
+                    else if (_jobHistory.Count == 0) { <div class="ciw-empty">No job data is available for the loaded runs.</div> }
+                    else
+                    {
+                        <p class="ciw-scope">Outcome of each job across the @_jobRuns.Count newest finished runs (oldest → newest). Jobs with failures come first.</p>
+                        <ul class="ciw-jobhist" aria-label="Job history">
+                            @foreach (var row in _jobHistory)
+                            {
+                                <li class="ciw-jobhist-row" data-job="@row.Name">
+                                    <span class="ciw-jobhist-name" title="@row.Name">@row.Name</span>
+                                    <span class="ciw-strip" role="img" aria-label="@row.Name: @row.Label">
+                                        @foreach (var c in row.Cells) { <i class="ciw-sdot @c.Cls" title="#@c.RunNumber · @c.Text"></i> }
+                                    </span>
+                                    <span class="ciw-jobhist-tally @(row.Failed > 0 ? "bad" : "good")">@(row.Failed == 0 ? "all passed" : $"{row.Failed} failed")</span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                    break;
+                default:
+                    <div class="ciw-toolbar ciw-dfilters">
+                        @if (ShowSearch)
+                        {
+                            <div class="ciw-searchbox"><Icon Name="search" Size="16" />
+                                <input type="search" placeholder="Filter runs…" aria-label="Filter this workflow's runs" value="@_search" @oninput="e => _search = e.Value?.ToString()" @onchange="PushQuery" /></div>
+                        }
+                        <div class="ciw-chips" role="group" aria-label="Filter runs by status">
+                            @foreach (var f in StatusChips)
+                            {
+                                <button type="button" class="ciw-fchip @(_status == f ? "on" : "")" aria-pressed="@(_status == f ? "true" : "false")" @onclick="() => SetStatus(f)" data-filter="@f">@f <span class="n">@StatusCount(f)</span></button>
+                            }
+                        </div>
+                        <label class="ciw-select">Branch
+                            <select aria-label="Filter by branch" @onchange="e => SetBranch(e.Value?.ToString())">
+                                <option value="" selected="@string.IsNullOrEmpty(_branch)">All branches</option>
+                                @foreach (var b in Branches) { <option value="@b" selected="@(b == _branch)">@b</option> }
+                            </select></label>
+                        <label class="ciw-select">Event
+                            <select aria-label="Filter by trigger event" @onchange="e => SetEvent(e.Value?.ToString())">
+                                <option value="" selected="@string.IsNullOrEmpty(_event)">All events</option>
+                                @foreach (var ev in Events) { <option value="@ev" selected="@(ev == _event)">@ev</option> }
+                            </select></label>
+                    </div>
+                    <RunTable Runs="FilteredRuns" OnRunSelected="OpenRun" RunHref="@(r => Routes.Run(Repo, r.Id))" HealthFor="@(_analysis is not null ? RunHealth : null)" DefaultBranch="@(DefaultBranch ?? MostActiveBranch)" />
+                    @if (_truncated)
+                    {
+                        <div class="ciw-more"><button type="button" class="ciw-btn" @onclick="LoadOlderAsync" disabled="@_loadingOlder" data-action="load-older">@(_loadingOlder ? "Loading…" : "Load older runs")</button></div>
+                    }
+                    break;
+            }
+            </div>
+        }
+        break;
+    }
+</section>
+
+@code {
+    private enum LoadState { Loading, Ready, NotFound, Error }
+
+    private static readonly string[] Tabs = ["runs", "failures", "jobs"];
+    private static readonly string[] StatusChips = ["All", "Failed", "Succeeded", "Active", "Cancelled"];
+    private const int PageSize = 100;
+    private const int OlderSize = 300;
+    private const int JobHistoryRuns = 8;
+
+    [Parameter, EditorRequired] public RepoRef Repo { get; set; }
+    [Parameter, EditorRequired] public long WorkflowId { get; set; }
+    /// <summary>Hosts that already offer a global search (sharing <see cref="WorkspaceSignals"/>) hide this component's own filter box.</summary>
+    [Parameter] public bool ShowSearch { get; set; } = true;
+    [Parameter] public string? DefaultBranch { get; set; }
+    /// <summary>Current tab and filters, as parsed by the host from its URL.</summary>
+    [Parameter] public WorkflowDetailsQuery Query { get; set; } = WorkflowDetailsQuery.Empty;
+    /// <summary>Raised whenever the tab or a filter changes so the host can reflect it in the URL.</summary>
+    [Parameter] public EventCallback<WorkflowDetailsQuery> OnQueryChanged { get; set; }
+
+    private LoadState _state = LoadState.Loading;
+    private WorkflowInfo? _wf;
+    private IReadOnlyList<WorkflowRunInfo> _runs = [];
+    private FailureAnalysis? _analysis;
+    private string? _error, _groupPath;
+    private bool _truncated, _analyzing, _loadingOlder, _jobsLoading, _jobsLoaded, _scrollRestored;
+    private string _tab = "runs", _status = "All";
+    private string? _search, _branch, _event;
+    private WorkflowDetailsQuery? _appliedQuery;
+    private RepoRef _loadedRepo; private long _loadedId = -1;
+    private List<WorkflowRunInfo> _jobRuns = [];
+    private List<JobRow> _jobHistory = [];
+    private CancellationTokenSource _cts = new();
+
+    private sealed record JobCell(int RunNumber, string Cls, string Text);
+    private sealed record JobRow(string Name, IReadOnlyList<JobCell> Cells, int Failed)
+    {
+        public string Label => string.Join(", ", Cells.Select(c => c.Text));
+    }
+
+    private RenderFragment Crumbs => @<nav class="ciw-crumbs" aria-label="Breadcrumb" data-testid="breadcrumbs">
+        <ol>
+            <li><a href="@Routes.Repositories">Repositories</a></li>
+            <li><a href="@Routes.Repository(Repo)">@Repo.FullName</a></li>
+            @if (_groupPath is { } gp)
+            {
+                <li><a href="@Routes.Repository(Repo)" @onclick="() => OpenGroupPath(gp)" data-crumb="group">@gp.Replace("/", " / ")</a></li>
+            }
+            <li aria-current="page">@(_wf?.Name ?? "Workflow")</li>
+        </ol>
+    </nav>;
+
+    private void OpenGroupPath(string path)
+    {
+        // Returning through the group crumb leaves that group (and its parents) open on the repository page.
+        var acc = "";
+        foreach (var part in path.Split('/')) { acc = acc.Length == 0 ? part : acc + "/" + part; Prefs.SetExpanded($"group|{Repo}|{acc}", true); }
+    }
+
+    private WorkflowHealth Health => WorkflowHealthAnalyzer.Assess(_runs, DefaultBranch, _analysis is null ? null : _analysis.Recurring.Count > 0, Time.GetUtcNow());
+    private string MostActiveBranch => _runs.GroupBy(r => r.Branch).OrderByDescending(g => g.Count()).Select(g => g.Key).FirstOrDefault() ?? "";
+    private IEnumerable<string> Branches => _runs.Select(r => r.Branch).Where(b => b.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase);
+    private IEnumerable<string> Events => _runs.Select(r => r.Event).Where(b => b.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase);
+    private string? EffectiveSearch => ShowSearch ? _search : Signals.SearchText;
+
+    private IReadOnlyList<WorkflowRunInfo> FilteredRuns => ApplyStatus(_status, RunFiltering.Apply(_runs, new RunFilter(EffectiveSearch, null, _branch, _event)));
+
+    private static IReadOnlyList<WorkflowRunInfo> ApplyStatus(string status, IReadOnlyList<WorkflowRunInfo> runs) => status switch
+    {
+        "Failed" => runs.Where(r => r.State == RunState.Failure).ToList(),
+        "Succeeded" => runs.Where(r => r.State == RunState.Success).ToList(),
+        "Active" => runs.Where(r => r.State.IsActive()).ToList(),
+        "Cancelled" => runs.Where(r => r.State == RunState.Cancelled).ToList(),
+        _ => runs,
+    };
+
+    private int StatusCount(string f) => ApplyStatus(f, RunFiltering.Apply(_runs, new RunFilter(EffectiveSearch, null, _branch, _event))).Count;
+
+    private string TabLabel(string t) => t switch
+    {
+        "failures" => _analysis is null ? "Failure series" : $"Failure series ({_analysis.Recurring.Count})",
+        "jobs" => "Jobs",
+        _ => $"Runs ({_runs.Count}{(_truncated ? "+" : "")})",
+    };
+
+    private static string? SafeUrl(string? u) =>
+        Uri.TryCreate(u, UriKind.Absolute, out var x) && x.Scheme == Uri.UriSchemeHttps && !x.Host.EndsWith(".invalid") ? x.ToString() : null;
+
+    // ------------------------------------------------------------------ lifecycle
+
+    protected override void OnInitialized()
+    {
+        Signals.RefreshRequested += OnRefreshRequested;
+        Signals.Changed += OnSignals;
+    }
+
+    private void OnSignals() => InvokeAsync(StateHasChanged);
+    private void OnRefreshRequested() => _ = InvokeAsync(RefreshAsync);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!ReferenceEquals(_appliedQuery, Query))
+        {
+            _appliedQuery = Query;
+            _tab = Query.Tab is "failures" or "jobs" ? Query.Tab : "runs";
+            _status = StatusChips.Contains(Query.Status ?? "") ? Query.Status! : "All";
+            _branch = Query.Branch; _event = Query.Event;
+            if (ShowSearch) _search = Query.Q;
+        }
+        if (_loadedRepo.Equals(Repo) && _loadedId == WorkflowId) { await EnsureTabDataAsync(); return; }
+        _loadedRepo = Repo; _loadedId = WorkflowId;
+        await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_state is LoadState.Loading || _scrollRestored) return;
+        _scrollRestored = true;
+        try { await JS.InvokeVoidAsync("ciw.restoreScroll"); }
+        catch (JSException) { }
+        catch (InvalidOperationException) { }
+        catch (JSDisconnectedException) { }
+    }
+
+    private Task RetryAsync() { Provider.Clear(); return LoadAsync(); }
+
+    private async Task LoadAsync()
+    {
+        _cts.Cancel(); _cts.Dispose(); _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
+        _state = LoadState.Loading; _error = null; _wf = null; _runs = []; _analysis = null; _groupPath = null; _truncated = false;
+        _jobsLoaded = false; _jobHistory = []; _jobRuns = []; _scrollRestored = false;
+        Signals.ReportLoading(true);
+        try
+        {
+            var wfsTask = Provider.ListWorkflowsAsync(Repo, ct);
+            var runsTask = Provider.ListWorkflowRunsAsync(Repo, WorkflowId, PageSize, ct);
+            var wfs = await wfsTask;
+            _runs = await runsTask;
+            _wf = wfs.FirstOrDefault(w => w.Id == WorkflowId)
+                  ?? (_runs.Count > 0 ? new WorkflowInfo(WorkflowId, _runs[0].Name, _runs[0].WorkflowPath, true, null) : null);
+            if (_wf is null) { _state = LoadState.NotFound; Signals.ReportUpdated(Time.GetUtcNow()); return; }
+            _truncated = _runs.Count >= PageSize;
+            _state = LoadState.Ready;
+            Signals.ReportUpdated(Time.GetUtcNow());
+            await InvokeAsync(StateHasChanged);
+            await ResolveGroupAsync(wfs, ct);
+            if (_runs.Any(r => r.State == RunState.Failure)) await AnalyzeAsync();
+            await EnsureTabDataAsync();
+        }
+        catch (OperationCanceledException) { return; }
+        catch (CiProviderException ex) when (ex.StatusCode == 404) { _state = LoadState.NotFound; Signals.ReportLoading(false); }
+        catch (CiProviderException ex) { _error = ex.Message; _state = LoadState.Error; Signals.ReportLoading(false); }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ResolveGroupAsync(IReadOnlyList<WorkflowInfo> wfs, CancellationToken ct)
+    {
+        if (_wf is null) return;
+        try
+        {
+            var cfg = await GroupConfigLoader.LoadAsync(Provider, Repo, ct);
+            var comment = new Dictionary<string, string?>();
+            if (!cfg.Result.Config.Groups.Any(g => g.Workflows.Any(p => WorkflowGroupResolver.PathMatches(p, _wf.Path))))
+                comment[_wf.Path] = WorkflowGroupResolver.ExtractCommentGroup(await Provider.GetFileAsync(Repo, _wf.Path, ct));
+            var all = wfs.Any(w => w.Id == _wf.Id) ? wfs : [.. wfs, _wf];
+            var result = WorkflowGroupResolver.Resolve(all, cfg.Result.Config, comment);
+            _groupPath = result.AllWorkflows.FirstOrDefault(a => a.Workflow.Id == _wf.Id)?.GroupPath;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (CiProviderException) { /* breadcrumb simply omits the group */ }
+    }
+
+    private async Task AnalyzeAsync()
+    {
+        if (_analyzing) return;
+        var ct = _cts.Token;
+        _analyzing = true; await InvokeAsync(StateHasChanged);
+        try { _analysis = await new FailureAnalyzer(Provider).AnalyzeAsync(Repo, _runs, _truncated, FailureAnalyzer.DefaultMaxRuns, ct); }
+        catch (OperationCanceledException) { }
+        catch (CiProviderException ex) { _error = null; _analysis = null; _warning = $"Failure analysis stopped: {ex.Message}"; }
+        finally { _analyzing = false; }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private string? _warning;
+
+    private async Task RefreshAsync()
+    {
+        if (_state != LoadState.Ready) return;
+        Provider.InvalidateRuns(Repo);
+        try
+        {
+            Signals.ReportLoading(true);
+            _runs = await Provider.ListWorkflowRunsAsync(Repo, WorkflowId, _loadingOlderSize, _cts.Token);
+            _truncated = _runs.Count >= _loadingOlderSize;
+            _jobsLoaded = false;
+            Signals.ReportUpdated(Time.GetUtcNow());
+            if (_analysis is not null || _runs.Any(r => r.State == RunState.Failure)) { _analysis = null; await AnalyzeAsync(); }
+            await EnsureTabDataAsync();
+        }
+        catch (OperationCanceledException) { }
+        catch (CiProviderException ex) { _warning = $"Refresh failed: {ex.Message}"; Signals.ReportLoading(false); }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private int _loadingOlderSize = PageSize;
+
+    private async Task LoadOlderAsync()
+    {
+        if (_loadingOlder) return;
+        _loadingOlder = true; await InvokeAsync(StateHasChanged);
+        try
+        {
+            _loadingOlderSize = OlderSize;
+            _runs = await Provider.ListWorkflowRunsAsync(Repo, WorkflowId, OlderSize, _cts.Token);
+            _truncated = _runs.Count >= OlderSize;
+            _analysis = null; _jobsLoaded = false;
+            if (_runs.Any(r => r.State == RunState.Failure)) await AnalyzeAsync();
+            await EnsureTabDataAsync();
+        }
+        catch (OperationCanceledException) { }
+        catch (CiProviderException ex) { _warning = ex.Message; }
+        finally { _loadingOlder = false; }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ------------------------------------------------------------------ tabs and filters
+
+    private async Task SelectTabAsync(string t)
+    {
+        _tab = t;
+        await PushQuery();
+        await EnsureTabDataAsync();
+    }
+
+    private async Task OnTabKey(KeyboardEventArgs e, string t)
+    {
+        var i = Array.IndexOf(Tabs, t);
+        var next = e.Key switch { "ArrowRight" => (i + 1) % Tabs.Length, "ArrowLeft" => (i + Tabs.Length - 1) % Tabs.Length, "Home" => 0, "End" => Tabs.Length - 1, _ => -1 };
+        if (next < 0) return;
+        await SelectTabAsync(Tabs[next]);
+        try { await JS.InvokeVoidAsync("ciw.focusById", $"wfd-tab-{Tabs[next]}"); } catch (JSException) { } catch (InvalidOperationException) { }
+    }
+
+    private Task SetStatus(string s) { _status = s; return PushQuery(); }
+    private Task SetBranch(string? b) { _branch = string.IsNullOrEmpty(b) ? null : b; return PushQuery(); }
+    private Task SetEvent(string? e) { _event = string.IsNullOrEmpty(e) ? null : e; return PushQuery(); }
+
+    private Task PushQuery()
+    {
+        var q = new WorkflowDetailsQuery(_tab == "runs" ? null : _tab, ShowSearch ? _search : null, _status == "All" ? null : _status, _branch, _event);
+        _appliedQuery = q;   // our own change: do not re-apply it when the host echoes it back
+        return OnQueryChanged.InvokeAsync(q);
+    }
+
+    private async Task EnsureTabDataAsync()
+    {
+        if (_state != LoadState.Ready || _tab != "jobs" || _jobsLoaded || _jobsLoading) return;
+        var ct = _cts.Token;
+        _jobsLoading = true; await InvokeAsync(StateHasChanged);
+        try
+        {
+            var targets = _runs.Where(r => r.State.IsCompleted() && r.State != RunState.Skipped).OrderByDescending(r => r.SortTime).Take(JobHistoryRuns).Reverse().ToList();
+            var jobs = new Dictionary<long, IReadOnlyList<JobInfo>>();
+            using var gate = new SemaphoreSlim(4);
+            await Task.WhenAll(targets.Select(async r =>
+            {
+                await gate.WaitAsync(ct);
+                try { var j = await Provider.ListJobsAsync(Repo, r.Id, ct); lock (jobs) jobs[r.Id] = j; }
+                catch (CiProviderException) { /* that run simply has no cell */ }
+                finally { gate.Release(); }
+            }));
+            _jobRuns = targets;
+            _jobHistory = jobs.Values.SelectMany(j => j).Select(j => j.Name).Distinct(StringComparer.Ordinal)
+                .Select(name =>
+                {
+                    var cells = targets.Select(r => jobs.TryGetValue(r.Id, out var js) && js.FirstOrDefault(j => j.Name == name) is { } job
+                        ? new JobCell(r.RunNumber, Fmt.StateClass(job.State), $"{Fmt.StateLabel(job.State)}")
+                        : new JobCell(r.RunNumber, "none", "no data")).ToList();
+                    return new JobRow(name, cells, cells.Count(c => c.Cls == "fail"));
+                })
+                .OrderByDescending(r => r.Failed).ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToList();
+            _jobsLoaded = true;
+        }
+        catch (OperationCanceledException) { }
+        finally { _jobsLoading = false; }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private Task OpenRun(WorkflowRunInfo r) { Nav.NavigateTo(Routes.Run(Repo, r.Id)); return Task.CompletedTask; }
+    private Task OpenSelection(RunSelection s) { Nav.NavigateTo(Routes.Run(s.Repo, s.Run.Id)); return Task.CompletedTask; }
+
+    /// <summary>Health text only from jobs that were actually inspected; never inferred.</summary>
+    private (string Text, string Cls)? RunHealth(WorkflowRunInfo r)
+    {
+        if (_analysis is null) return null;
+        var failed = _analysis.Series.SelectMany(s => s.Occurrences).Where(o => o.Run.Id == r.Id).Select(o => o.JobName).Distinct().ToList();
+        if (failed.Count > 0) return (failed.Count == 1 ? $"{failed[0]} failed" : $"{failed[0]} +{failed.Count - 1} failed", "bad");
+        return r.State switch
+        {
+            RunState.Success => ("All jobs passed", "ok"),
+            RunState.Failure => ("Not inspected", "muted"),
+            _ => null,
+        };
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Signals.RefreshRequested -= OnRefreshRequested;
+        Signals.Changed -= OnSignals;
+        _cts.Cancel(); _cts.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

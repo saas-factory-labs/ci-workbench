@@ -1,9 +1,10 @@
 @implements IAsyncDisposable
-@inject ICiProvider Provider
+@inject CachedCi Provider
 @inject TimeProvider Time
 @inject IJSRuntime JS
+@inject CiwRoutes Routes
 
-<aside class="ciw-inspector" aria-label="Run inspector">
+<div class="ciw-inspector @(IsPage ? "page" : "")" role="@(IsPage ? "region" : "complementary")" aria-label="@(IsPage ? "Run diagnostics" : "Run inspector")" data-testid="@(IsPage ? "run-diagnostics" : "quick-inspector")">
     @if (Selection is null)
     {
         <div class="ciw-empty">Select a run to inspect its jobs and steps.</div>
@@ -13,6 +14,8 @@
         var run = Selection.Run;
         var now = Time.GetUtcNow();
         <header class="ciw-insp-head" data-testid="inspector-header">
+            @if (!IsPage)
+            {
             <div class="ciw-insp-title">
                 <StatusBadge State="run.State" />
                 <strong class="ciw-insp-name" title="@run.WorkflowPath">@run.Name</strong>
@@ -26,9 +29,10 @@
                 {
                     <a class="ciw-iconbtn" href="@url" target="_blank" rel="noopener noreferrer" title="Open this run on GitHub" aria-label="Open run on GitHub"><Icon Name="external" Size="16" /></a>
                 }
-                <button type="button" class="ciw-iconbtn" @onclick="() => OnClose.InvokeAsync()" aria-label="Close inspector" title="Collapse inspector (Esc)" data-testid="inspector-close"><Icon Name="x" Size="16" /></button>
+                <button type="button" class="ciw-iconbtn ciw-insp-close" @onclick="() => OnClose.InvokeAsync()" aria-label="Close inspector" title="Close inspector (Esc)" data-testid="inspector-close"><Icon Name="x" Size="16" /><span class="ciw-close-label">Close</span></button>
             </div>
             <p class="ciw-insp-sub" title="@Fmt.When(run.SortTime)">Run <span class="ciw-mono">@run.Id</span> · started @Fmt.Ago(run.SortTime, now)@(run.Duration is { } d ? $" · took {Fmt.Duration(d)}" : "")</p>
+            }
             <div class="ciw-tabs" role="tablist" aria-label="Run details">
                 @foreach (var t in Tabs)
                 {
@@ -102,6 +106,15 @@
                                 <h3 class="ciw-diag-title">@StateHeadline(run, _jobs)</h3>
                             </section>
                         }
+                        <div class="ciw-insp-actions">
+                            @if (!IsPage) { <a class="ciw-btn primary" href="@Routes.Run(Selection.Repo, run.Id)" data-action="open-run-details">Open full run details <Icon Name="chevron-right" Size="14" /></a> }
+                            @if (!IsPage) { <CopyContextButton BuildText="BuildContextAsync" /> }
+                            @if (p is not null && !Provider.IsDemo && SafeUrl(p.HtmlUrl) is { } logUrl) { <a class="ciw-btn" href="@logUrl" target="_blank" rel="noopener noreferrer">View full logs ↗</a> }
+                            else if (p is not null) { <span class="ciw-btn disabled" aria-disabled="true" title="Demo data: there is no GitHub log to open.">View full logs ↗</span> }
+                            @if (OnInspectSimilar.HasDelegate && failed.Count > 0) { <button type="button" class="ciw-btn" @onclick="() => OnInspectSimilar.InvokeAsync(Selection)" data-action="inspect-similar">Inspect similar failures</button> }
+                        </div>
+                        @if (!IsPage)
+                        {
                         <dl class="ciw-kv compact" aria-label="Run details">
                             <dt>Repository</dt><dd>@Selection.Repo</dd>
                             <dt>Trigger</dt><dd>@run.Event by @run.Actor</dd>
@@ -109,12 +122,7 @@
                             @if (!string.IsNullOrEmpty(run.CommitMessage)) { <dt>Commit</dt><dd class="ciw-wrap">@run.CommitMessage</dd> }
                             <dt>Started</dt><dd>@Fmt.When(run.SortTime)</dd>
                         </dl>
-                        <div class="ciw-insp-actions">
-                            <CopyContextButton BuildText="BuildContextAsync" Primary="true" />
-                            @if (p is not null && !Provider.IsDemo && SafeUrl(p.HtmlUrl) is { } logUrl) { <a class="ciw-btn" href="@logUrl" target="_blank" rel="noopener noreferrer">View full logs ↗</a> }
-                            else if (p is not null) { <span class="ciw-btn disabled" aria-disabled="true" title="Demo data: there is no GitHub log to open.">View full logs ↗</span> }
-                            @if (OnInspectSimilar.HasDelegate && failed.Count > 0) { <button type="button" class="ciw-btn" @onclick="() => OnInspectSimilar.InvokeAsync(Selection)" data-action="inspect-similar">Inspect similar failures</button> }
-                        </div>
+                        }
                         break;
                     }
                     case InspectorTab.Jobs:
@@ -172,11 +180,15 @@
             }
         </div>
     }
-</aside>
+</div>
 
 @code {
     private enum InspectorTab { Summary, Jobs, Logs }
     private static readonly InspectorTab[] Tabs = [InspectorTab.Summary, InspectorTab.Jobs, InspectorTab.Logs];
+
+    /// <summary>Panel = the quick inspector beside a list; Page = the same diagnostics inside a full run page (the page supplies title, status and metadata).</summary>
+    [Parameter] public InspectorMode Mode { get; set; } = InspectorMode.Panel;
+    private bool IsPage => Mode == InspectorMode.Page;
 
     [Parameter] public RunSelection? Selection { get; set; }
     /// <summary>Raised by the close button; the host decides whether that collapses a pane or clears the selection.</summary>
@@ -219,6 +231,7 @@
         try
         {
             _jobs = await Provider.ListJobsAsync(sel.Repo, sel.Run.Id, ct);
+            if (IsPage) { foreach (var fj in FailedJobs) _jobOpen.Add(fj.Id); }
             if (Primary is { } p) _jobOpen.Add(p.Id);
         }
         catch (OperationCanceledException) { return; }
@@ -291,7 +304,8 @@
         catch (InvalidOperationException) { _logCopied = false; }
     }
 
-    private async Task<string> BuildContextAsync()
+    /// <summary>Agent-ready context for the selected run (also used by the run page's header button).</summary>
+    public async Task<string> BuildContextAsync()
     {
         var sel = Selection!;
         var job = Primary;

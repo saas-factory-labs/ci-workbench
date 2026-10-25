@@ -1,11 +1,11 @@
 @implements IDisposable
 @inject UiPreferences Prefs
 
-<div class="ciw-tablewrap">
-<table class="ciw-table" aria-label="Workflow runs">
+<div class="ciw-tablewrap ciw-runwrap">
+<table class="ciw-table ciw-runtable" aria-label="Workflow runs">
     <thead>
         <tr>
-            <th class="c-status">Status</th><th class="c-id">Run ID</th><th class="c-trigger">Trigger</th>@if (ShowBranch) { <th class="c-branch">Branch</th> }
+            <th class="c-status">Status</th><th class="c-id">@(RunHref is not null ? "Run" : "Run ID")</th><th class="c-trigger">Trigger</th>@if (ShowBranch) { <th class="c-branch">Branch</th> }
             <th class="c-started">Started (UTC) <span aria-hidden="true">↓</span></th><th class="c-dur">Duration</th><th class="c-actor">Actor</th>
             @if (HealthFor is not null) { <th class="c-health">Health summary</th> }
             <th class="c-go"><span class="sr-only">Inspect</span></th>
@@ -17,7 +17,7 @@
         var health = HealthFor?.Invoke(r);
         <tr class="ciw-row @(r.Id == SelectedRunId ? "selected" : "")" tabindex="0" @onclick="() => Select(r)" @onkeydown="e => OnKey(e, r)" data-run-id="@r.Id" aria-label="Run @r.Id, @Fmt.StateLabel(r.State)">
             <td class="c-status"><StatusBadge State="r.State" /></td>
-            <td class="c-id ciw-mono">@r.Id</td>
+            <td class="c-id ciw-mono">@if (RunHref is not null) { <a class="ciw-runlink" href="@RunHref(r)" @onclick:stopPropagation="true" title="Open run details"><span class="ciw-runno">#@r.RunNumber</span> <span class="ciw-runid">@r.Id</span></a> } else { @r.Id }</td>
             <td class="c-trigger"><span class="ciw-chip">@r.Event</span></td>
             @if (ShowBranch) { <td class="c-branch">@if (r.Branch != DefaultBranch) { <span class="ciw-chip branch">@r.Branch</span> } else { <span class="ciw-muted" title="Default branch">·</span> }</td> }
             <td class="c-started" title="@Fmt.When(r.SortTime)">@Fmt.WhenShort(r.SortTime)</td>
@@ -61,6 +61,8 @@
 @code {
     [Parameter, EditorRequired] public IReadOnlyList<WorkflowRunInfo> Runs { get; set; } = [];
     [Parameter] public long? SelectedRunId { get; set; }
+    /// <summary>When set, the run cell becomes a real link (middle-click, copy link, keyboard) to the run's own page.</summary>
+    [Parameter] public Func<WorkflowRunInfo, string>? RunHref { get; set; }
     [Parameter] public EventCallback<WorkflowRunInfo> OnRunSelected { get; set; }
     /// <summary>Runs on this branch are not labelled; the Branch column only appears when some run is elsewhere.</summary>
     [Parameter] public string? DefaultBranch { get; set; }

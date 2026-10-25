@@ -1,0 +1,199 @@
+@* Level 3: one run. Page header with identity and metadata, then the shared diagnostics (summary / jobs and steps / logs on demand) and related failure series. *@
+@implements IAsyncDisposable
+@inject CachedCi Provider
+@inject CiwRoutes Routes
+@inject TimeProvider Time
+@inject NavigationManager Nav
+@inject WorkspaceSignals Signals
+@inject IJSRuntime JS
+
+<section class="ciw-details ciw-rund" aria-busy="@(_state == LoadState.Loading ? "true" : "false")" data-testid="run-details">
+    @switch (_state)
+    {
+        case LoadState.Loading:
+            <h1 class="sr-only">Loading run</h1>
+            <div class="ciw-panel ciw-loading" role="status">
+                <div class="ciw-skel w40"></div><div class="ciw-skel w80"></div><div class="ciw-skel w60"></div>
+                <p class="ciw-muted">Loading run…</p>
+            </div>
+            break;
+        case LoadState.Error:
+            <h1 class="sr-only">Run could not be loaded</h1>
+            @Crumbs
+            <div class="ciw-panel ciw-error" role="alert">
+                <h3>Could not load this run</h3>
+                <p>@_error</p>
+                <button type="button" class="ciw-btn" @onclick="RetryAsync">Retry</button>
+                <a class="ciw-btn" href="@Routes.Repository(Repo)">Back to repository</a>
+            </div>
+            break;
+        case LoadState.NotFound:
+            <h1 class="sr-only">Run not found</h1>
+            @Crumbs
+            <div class="ciw-panel" role="status" data-testid="run-not-found">
+                <h3>Run not found</h3>
+                <p class="ciw-muted">No run with id <span class="ciw-mono">@RunId</span> exists in @Repo, or it is not visible with the current access.</p>
+                <a class="ciw-btn" href="@Routes.Repository(Repo)">Back to repository</a>
+            </div>
+            break;
+        default:
+        {
+            var run = _run!;
+            var now = Time.GetUtcNow();
+            @Crumbs
+            <header class="ciw-dhead">
+                <div class="ciw-dtitlerow">
+                    <h1 class="ciw-dtitle" tabindex="-1">@run.Name <span class="ciw-mono ciw-runno-h">#@run.RunNumber</span></h1>
+                    <StatusBadge State="run.State" />
+                    @if (run.Attempt > 1) { <span class="ciw-flag" title="This is re-run attempt @run.Attempt">attempt @run.Attempt</span> }
+                </div>
+                <dl class="ciw-metagrid" aria-label="Run details" data-testid="run-meta">
+                    <div><dt>Commit</dt><dd><span class="ciw-mono">@Short(run.HeadSha)</span>@if (!string.IsNullOrEmpty(run.CommitMessage)) { <span class="ciw-commitmsg"> @run.CommitMessage</span> }</dd></div>
+                    <div><dt>Event</dt><dd>@run.Event</dd></div>
+                    <div><dt>Branch</dt><dd><span class="ciw-chip branch">@run.Branch</span></dd></div>
+                    <div><dt>Actor</dt><dd>@run.Actor</dd></div>
+                    <div><dt>Started</dt><dd title="@Fmt.When(run.SortTime)">@Fmt.When(run.SortTime) <span class="ciw-muted">· @Fmt.Ago(run.SortTime, now)</span></dd></div>
+                    <div><dt>Duration</dt><dd>@(run.Duration is null ? (run.State.IsActive() ? "in progress" : "—") : Fmt.Duration(run.Duration))</dd></div>
+                </dl>
+                <div class="ciw-dactions">
+                    <button type="button" class="ciw-btn" @onclick="GoBackAsync" data-action="back"><Icon Name="chevron-left" Size="14" /> Back</button>
+                    <a class="ciw-btn" href="@Routes.Workflow(Repo, run.WorkflowId)" data-action="open-workflow">Workflow details</a>
+                    @if (Provider.IsDemo) { <span class="ciw-btn disabled" aria-disabled="true" title="Demo data: this run does not exist on GitHub."><Icon Name="github" Size="16" /> GitHub</span> }
+                    else if (SafeUrl(run.HtmlUrl) is { } url) { <a class="ciw-btn" href="@url" target="_blank" rel="noopener noreferrer" data-action="open-github"><Icon Name="github" Size="16" /> View on GitHub</a> }
+                    <CopyContextButton BuildText="BuildContextAsync" Primary="true" />
+                </div>
+            </header>
+
+            <RunInspector @ref="_inspector" Mode="InspectorMode.Page" Selection="_selection" OnInspectSimilar="GoSeries" />
+
+            @if (run.State == RunState.Failure)
+            {
+                <section class="ciw-related" aria-label="Related failure series" data-testid="related-series">
+                    <h2 class="ciw-h2">Related failure series</h2>
+                    @if (_relatedLoading) { <div class="ciw-notice info" role="status">Checking whether this failure repeats…</div> }
+                    else if (_related.Count == 0) { <p class="ciw-muted">This run's failure is not part of an analysed series (the newest @FailureAnalyzer.DefaultMaxRuns failed runs of this workflow were inspected).</p> }
+                    else
+                    {
+                        <FailureSeriesList Repo="Repo" Series="_related" Runs="_workflowRuns" OnRunSelected="OpenSelection" />
+                    }
+                    <p><a href="@Routes.Workflow(Repo, run.WorkflowId, "failures")" data-action="all-series">All failure series for this workflow →</a></p>
+                </section>
+            }
+        }
+        break;
+    }
+</section>
+
+@code {
+    private enum LoadState { Loading, Ready, NotFound, Error }
+
+    [Parameter, EditorRequired] public RepoRef Repo { get; set; }
+    [Parameter, EditorRequired] public long RunId { get; set; }
+    /// <summary>Optional job name to focus (e.g. from a link on a failing job).</summary>
+    [Parameter] public string? FocusJob { get; set; }
+
+    private LoadState _state = LoadState.Loading;
+    private WorkflowRunInfo? _run;
+    private RunSelection? _selection;
+    private RunInspector? _inspector;
+    private string? _error;
+    private RepoRef _loadedRepo; private long _loadedId = -1;
+    private bool _relatedLoading, _scrollRestored;
+    private IReadOnlyList<FailureSeries> _related = [];
+    private IReadOnlyList<WorkflowRunInfo> _workflowRuns = [];
+    private CancellationTokenSource _cts = new();
+
+    private RenderFragment Crumbs => @<nav class="ciw-crumbs" aria-label="Breadcrumb" data-testid="breadcrumbs">
+        <ol>
+            <li><a href="@Routes.Repositories">Repositories</a></li>
+            <li><a href="@Routes.Repository(Repo)">@Repo.FullName</a></li>
+            @if (_run is { } r)
+            {
+                <li><a href="@Routes.Workflow(Repo, r.WorkflowId)" data-crumb="workflow">@r.Name</a></li>
+                <li aria-current="page">Run #@r.RunNumber</li>
+            }
+            else { <li aria-current="page">Run @RunId</li> }
+        </ol>
+    </nav>;
+
+    private static string Short(string sha) => sha.Length > 7 ? sha[..7] : sha;
+    private static string? SafeUrl(string? u) =>
+        Uri.TryCreate(u, UriKind.Absolute, out var x) && x.Scheme == Uri.UriSchemeHttps && !x.Host.EndsWith(".invalid") ? x.ToString() : null;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedRepo.Equals(Repo) && _loadedId == RunId)
+        {
+            if (_run is not null && FocusJob != _selection?.FocusJob) _selection = new RunSelection(Repo, _run, FocusJob);
+            return;
+        }
+        _loadedRepo = Repo; _loadedId = RunId;
+        await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_state is LoadState.Loading || _scrollRestored) return;
+        _scrollRestored = true;
+        try { await JS.InvokeVoidAsync("ciw.restoreScroll"); }
+        catch (JSException) { }
+        catch (InvalidOperationException) { }
+        catch (JSDisconnectedException) { }
+    }
+
+    private Task RetryAsync() { Provider.Clear(); return LoadAsync(); }
+
+    private async Task LoadAsync()
+    {
+        _cts.Cancel(); _cts.Dispose(); _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
+        _state = LoadState.Loading; _error = null; _run = null; _selection = null; _related = []; _workflowRuns = []; _scrollRestored = false;
+        Signals.ReportLoading(true);
+        try
+        {
+            _run = await Provider.GetRunAsync(Repo, RunId, ct);
+            Signals.ReportUpdated(Time.GetUtcNow());
+            if (_run is null) { _state = LoadState.NotFound; return; }
+            _selection = new RunSelection(Repo, _run, FocusJob);
+            _state = LoadState.Ready;
+            await InvokeAsync(StateHasChanged);
+            if (_run.State == RunState.Failure) await LoadRelatedAsync(_run, ct);
+        }
+        catch (OperationCanceledException) { return; }
+        catch (CiProviderException ex) { _error = ex.Message; _state = LoadState.Error; Signals.ReportLoading(false); }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadRelatedAsync(WorkflowRunInfo run, CancellationToken ct)
+    {
+        _relatedLoading = true; await InvokeAsync(StateHasChanged);
+        try
+        {
+            _workflowRuns = await Provider.ListWorkflowRunsAsync(Repo, run.WorkflowId, 100, ct);
+            if (_workflowRuns.All(r => r.Id != run.Id)) _workflowRuns = [.. _workflowRuns, run];
+            var analysis = await new FailureAnalyzer(Provider).AnalyzeAsync(Repo, _workflowRuns, _workflowRuns.Count >= 100, FailureAnalyzer.DefaultMaxRuns, ct);
+            _related = analysis.Series.Where(s => s.Occurrences.Any(o => o.Run.Id == run.Id)).ToList();
+        }
+        catch (OperationCanceledException) { }
+        catch (CiProviderException) { _related = []; }
+        finally { _relatedLoading = false; }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task GoBackAsync()
+    {
+        var went = false;
+        try { went = await JS.InvokeAsync<bool>("ciw.back"); }
+        catch (JSException) { }
+        catch (InvalidOperationException) { }
+        // Opened from a bookmark or a pasted link: there is no in-app history, so go up one level instead.
+        if (!went && _run is { } r) Nav.NavigateTo(Routes.Workflow(Repo, r.WorkflowId));
+    }
+
+    private void GoSeries(RunSelection s) => Nav.NavigateTo(Routes.Workflow(Repo, s.Run.WorkflowId, "failures"));
+    private Task OpenSelection(RunSelection s) { Nav.NavigateTo(Routes.Run(s.Repo, s.Run.Id)); return Task.CompletedTask; }
+
+    private Task<string> BuildContextAsync() => _inspector is null ? Task.FromResult("") : _inspector.BuildContextAsync();
+
+    public ValueTask DisposeAsync() { _cts.Cancel(); _cts.Dispose(); return ValueTask.CompletedTask; }
+}

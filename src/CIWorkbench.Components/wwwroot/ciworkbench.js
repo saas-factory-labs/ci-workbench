@@ -27,8 +27,68 @@ window.ciw = {
   },
   // A host component that exposes [JSInvokable] OnEscape() receives Esc presses that are not typed into a field.
   _shell: null,
-  registerShell: (ref) => { window.ciw._shell = ref; },
+  registerShell: (ref) => {
+    window.ciw._shell = ref;
+    // Report the two layout breakpoints the shell needs for behaviour (CSS handles the rest): phone, and wide enough to dock the inspector.
+    const phone = window.matchMedia('(max-width: 760px)');
+    const wide = window.matchMedia('(min-width: 1680px)');
+    const report = () => ref.invokeMethodAsync('OnViewport', phone.matches, wide.matches).catch(() => { });
+    phone.addEventListener('change', report); wide.addEventListener('change', report);
+    report();
+  },
+  // Background scroll lock while a phone overlay (drawer, sheet) is open.
+  lockScroll: (on) => document.documentElement.classList.toggle('ciw-scroll-lock', !!on),
+  focusFirstIn: (id) => {
+    const root = document.getElementById(id); if (!root) return;
+    requestAnimationFrame(() => {
+      const t = root.querySelector('a[href], button:not([disabled]), input, select, [tabindex]:not([tabindex="-1"])');
+      if (t) t.focus({ preventScroll: true });
+    });
+  },
+
+  // ---- history, back and scroll restoration (the page is a single-page app; async content defeats the browser's own restoration) ----
+  _appNavs: 0, _popped: false,
+  // true when this tab already holds an in-app history entry to go back to
+  back: () => { if (window.ciw._appNavs > 0) { window.ciw._appNavs--; history.back(); return true; } return false; },
+  restoreScroll: () => {
+    const c = window.ciw;
+    const key = c._scrollKey();
+    if (!c._popped) { window.scrollTo(0, 0); return; }
+    c._popped = false;
+    let y = 0; try { y = parseInt(sessionStorage.getItem(key) || '0', 10) || 0; } catch (e) { }
+    if (y <= 0) return;
+    // Content renders in stages, so retry briefly until the page is tall enough.
+    let tries = 0;
+    const step = () => {
+      window.scrollTo(0, y);
+      if (Math.abs(window.scrollY - y) > 2 && tries++ < 20) setTimeout(step, 100);
+    };
+    step();
+  },
+  _scrollKey: () => 'ciw:scroll:' + location.pathname + location.search,
+  _saveScroll: () => { try { sessionStorage.setItem(window.ciw._scrollKey(), String(Math.round(window.scrollY))); } catch (e) { } },
 };
+
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+(() => {
+  let timer = 0;
+  window.addEventListener('scroll', () => { clearTimeout(timer); timer = setTimeout(window.ciw._saveScroll, 120); }, { passive: true });
+  // Remember the position of the page we are leaving, before the URL changes.
+  for (const fn of ['pushState', 'replaceState']) {
+    const orig = history[fn].bind(history);
+    history[fn] = (...args) => {
+      const before = location.pathname + location.search;
+      window.ciw._saveScroll();
+      const r = orig(...args);
+      if (fn === 'pushState' && (location.pathname + location.search) !== before) window.ciw._appNavs++;
+      return r;
+    };
+  }
+  window.addEventListener('popstate', () => { window.ciw._popped = true; });
+  window.addEventListener('pagehide', () => window.ciw._saveScroll());
+  // A reload also restores the last position of this URL.
+  try { if (performance.getEntriesByType('navigation')[0]?.type === 'reload') window.ciw._popped = true; } catch (e) { }
+})();
 
 const isTyping = (el) => !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
 
