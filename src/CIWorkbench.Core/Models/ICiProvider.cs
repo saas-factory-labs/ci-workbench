@@ -15,6 +15,8 @@ public interface ICiProvider
     /// <summary>Bounded repo-wide recent runs (one paged request series, not one per workflow).</summary>
     Task<IReadOnlyList<WorkflowRunInfo>> ListRecentRunsAsync(RepoRef repo, int max, CancellationToken ct);
     Task<IReadOnlyList<WorkflowRunInfo>> ListWorkflowRunsAsync(RepoRef repo, long workflowId, int max, CancellationToken ct);
+    /// <summary>One run by id (deep links), or null when it does not exist or is not visible.</summary>
+    Task<WorkflowRunInfo?> GetRunAsync(RepoRef repo, long runId, CancellationToken ct);
     Task<IReadOnlyList<JobInfo>> ListJobsAsync(RepoRef repo, long runId, CancellationToken ct);
     /// <summary>Last <paramref name="maxBytes"/> of a job log, or null when unavailable.</summary>
     Task<string?> GetJobLogTailAsync(RepoRef repo, long jobId, int maxBytes, CancellationToken ct);

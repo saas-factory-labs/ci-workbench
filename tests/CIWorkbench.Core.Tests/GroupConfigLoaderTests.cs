@@ -26,6 +26,7 @@ public class GroupConfigLoaderTests
         public Task<IReadOnlyList<WorkflowInfo>> ListWorkflowsAsync(RepoRef repo, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<WorkflowRunInfo>> ListRecentRunsAsync(RepoRef repo, int max, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<WorkflowRunInfo>> ListWorkflowRunsAsync(RepoRef repo, long workflowId, int max, CancellationToken ct) => throw new NotSupportedException();
+        public Task<WorkflowRunInfo?> GetRunAsync(RepoRef repo, long runId, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<JobInfo>> ListJobsAsync(RepoRef repo, long runId, CancellationToken ct) => throw new NotSupportedException();
         public Task<string?> GetJobLogTailAsync(RepoRef repo, long jobId, int maxBytes, CancellationToken ct) => throw new NotSupportedException();
         public Task<RateLimitInfo?> GetRateLimitAsync(CancellationToken ct) => throw new NotSupportedException();

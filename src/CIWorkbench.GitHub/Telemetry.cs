@@ -35,6 +35,7 @@ public static class GitHubOperations
     public const string WorkflowsList = "workflows.list";
     public const string RunsList = "runs.list";
     public const string WorkflowRunsList = "workflow_runs.list";
+    public const string RunGet = "run.get";
     public const string JobsList = "jobs.list";
     public const string JobLogGet = "job_log.get";
     public const string JobLogBlob = "job_log.blob";

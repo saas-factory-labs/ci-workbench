@@ -120,6 +120,17 @@ public sealed class GitHubCiProvider(
         return all.Take(max).ToList();
     }
 
+    public async Task<WorkflowRunInfo?> GetRunAsync(RepoRef repo, long runId, CancellationToken ct)
+    {
+        EnsureAllowed(repo);
+        try
+        {
+            var (body, _, _) = await GetPageAsync($"repos/{repo.Owner}/{repo.Name}/actions/runs/{runId}", ct, GitHubOperations.RunGet);
+            return MapRun(Parse<RunDto>(body)!);
+        }
+        catch (CiProviderException ex) when (ex.StatusCode == 404) { return null; }
+    }
+
     public async Task<IReadOnlyList<JobInfo>> ListJobsAsync(RepoRef repo, long runId, CancellationToken ct)
     {
         EnsureAllowed(repo);

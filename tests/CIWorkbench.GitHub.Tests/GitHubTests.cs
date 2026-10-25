@@ -332,3 +332,26 @@ public class ConnectionTests
     }
 }
 
+
+public class SingleRunTests
+{
+    [Fact]
+    public async Task Get_run_maps_one_run_with_a_read_only_get()
+    {
+        HttpRequestMessage? seen = null;
+        var (p, _, _, _, _) = H.Build(r => { seen = r; return H.Json(H.RunJson(42, "completed", "failure")); });
+        var run = await p.GetRunAsync(H.Repo, 42, default);
+        Assert.Equal(HttpMethod.Get, seen!.Method);
+        Assert.EndsWith("repos/example-org/demo/actions/runs/42", seen.RequestUri!.AbsolutePath.TrimStart('/'));
+        Assert.Equal(RunState.Failure, run!.State);
+        Assert.Equal(42, run.Id);
+        Assert.Equal(".github/workflows/ci.yml", run.WorkflowPath);
+    }
+
+    [Fact]
+    public async Task Get_run_returns_null_for_a_run_that_does_not_exist()
+    {
+        var (p, _, _, _, _) = H.Build(_ => H.Json("{\"message\":\"Not Found\"}", System.Net.HttpStatusCode.NotFound));
+        Assert.Null(await p.GetRunAsync(H.Repo, 1, default));
+    }
+}

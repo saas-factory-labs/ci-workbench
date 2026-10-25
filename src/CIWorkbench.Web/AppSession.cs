@@ -116,6 +116,7 @@ public sealed class SwitchableCiProvider(AppSession session) : ICiProvider
     public Task<IReadOnlyList<WorkflowInfo>> ListWorkflowsAsync(RepoRef repo, CancellationToken ct) => P.ListWorkflowsAsync(repo, ct);
     public Task<IReadOnlyList<WorkflowRunInfo>> ListRecentRunsAsync(RepoRef repo, int max, CancellationToken ct) => P.ListRecentRunsAsync(repo, max, ct);
     public Task<IReadOnlyList<WorkflowRunInfo>> ListWorkflowRunsAsync(RepoRef repo, long workflowId, int max, CancellationToken ct) => P.ListWorkflowRunsAsync(repo, workflowId, max, ct);
+    public Task<WorkflowRunInfo?> GetRunAsync(RepoRef repo, long runId, CancellationToken ct) => P.GetRunAsync(repo, runId, ct);
     public Task<IReadOnlyList<JobInfo>> ListJobsAsync(RepoRef repo, long runId, CancellationToken ct) => P.ListJobsAsync(repo, runId, ct);
     public Task<string?> GetJobLogTailAsync(RepoRef repo, long jobId, int maxBytes, CancellationToken ct) => P.GetJobLogTailAsync(repo, jobId, maxBytes, ct);
     public Task<string?> GetFileAsync(RepoRef repo, string path, CancellationToken ct) => P.GetFileAsync(repo, path, ct);
