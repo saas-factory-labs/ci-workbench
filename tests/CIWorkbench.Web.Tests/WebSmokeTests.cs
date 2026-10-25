@@ -32,6 +32,19 @@ public class WebSmokeTests(WebApplicationFactory<Program> factory) : IClassFixtu
         Assert.True(css.IsSuccessStatusCode);
         Assert.Contains("--ciw-bg", await css.Content.ReadAsStringAsync());
     }
+
+    [Fact]
+    public async Task Concept_four_brand_mark_is_served_as_svg()
+    {
+        using var client = factory.CreateClient();
+        var response = await client.GetAsync("/ciworkbench-logo.svg");
+        response.EnsureSuccessStatusCode();
+        Assert.Equal("image/svg+xml", response.Content.Headers.ContentType?.MediaType);
+        var markup = await response.Content.ReadAsStringAsync();
+        Assert.Contains("ciw-ribbon-top", markup);
+        Assert.Contains("ciw-ribbon-bottom", markup);
+        Assert.Contains("ciw-center-dot", markup);
+    }
 }
 
 public class NetworkExposureTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
