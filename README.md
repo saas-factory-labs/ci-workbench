@@ -1,8 +1,10 @@
 # CIWorkbench
 
-**Your CI/CD workspace.** An open-source workbench for organizing GitHub Actions workflows, monitoring runs and troubleshooting recurring failures across repositories. Built with .NET 10 and Blazor. Useful without AI.
+**Your CI/CD workspace.** A source-available workbench for organizing GitHub Actions workflows, monitoring runs and troubleshooting recurring failures across repositories. Built with .NET 10 and Blazor. Useful without AI.
 
 > Status: hackathon MVP. See [what is implemented vs. planned](#status).
+>
+> **License:** CIWorkbench Community is **source-available**, licensed under **Apache-2.0 with the Commons Clause v1.0**. You may read, use, modify, contribute to and share the software, including internal business use, but **selling CIWorkbench or an offering whose value derives entirely or substantially from CIWorkbench's functionality is restricted**. This is **not OSI-approved open source**. See [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md).
 
 ## Why
 
@@ -111,5 +113,13 @@ Precedence: **central config → `# ci-workbench-group:` comment → "Ungrouped"
 
 ## Contributing / License
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md) and [HACKATHON.md](HACKATHON.md). Licensed under [Apache-2.0](LICENSE).
+See [CONTRIBUTING.md](CONTRIBUTING.md), [CLA.md](CLA.md), [SECURITY.md](SECURITY.md) and [HACKATHON.md](HACKATHON.md).
+
+- **Community source:** [Apache License 2.0 + Commons Clause v1.0](LICENSE) (source-available, not OSI open source).
+- **Internal company use and community contributions:** permitted subject to the full license terms.
+- **Reselling substantially the same software or hosting it as a paid substitute:** restricted by Commons Clause; some third-party products with substantial independent value may still be sold.
+- **Previous Apache-2.0 revisions:** previous grants remain in force; this change does not retroactively revoke them.
+- **CIWorkbench Pro:** separately licensed, privately developed commercial features; no Pro implementation is included here.
+
+Read [LICENSING.md](LICENSING.md) for the precise scope, third-party dependencies and contributor licensing details.
 
