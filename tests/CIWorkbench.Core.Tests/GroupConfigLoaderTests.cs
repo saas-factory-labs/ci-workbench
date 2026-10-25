@@ -1,6 +1,9 @@
+using TUnit.Assertions.Enums;
+using System.IO;
 using System.Text.Json.Nodes;
 using CIWorkbench.Core.Grouping;
 using CIWorkbench.Core.Models;
+using System.Threading.Tasks;
 
 namespace CIWorkbench.Core.Tests;
 
@@ -35,126 +38,129 @@ public class GroupConfigLoaderTests
 
     private static Dictionary<(RepoRef, string), string?> Files(params (string Path, string Yaml)[] f) => f.ToDictionary(x => (Repo, x.Path), x => (string?)x.Yaml);
 
-    [Fact] public void Search_order_is_dot_github_first_then_legacy_root() =>
-        Assert.Equal([Preferred, Legacy], GroupConfigContract.SearchPaths);
+    [Test] public async Task Search_order_is_dot_github_first_then_legacy_root() =>
+        await Assert.That(GroupConfigContract.SearchPaths).IsEquivalentTo([Preferred, Legacy], CollectionOrdering.Matching);
 
-    [Fact] public async Task Preferred_file_is_used_when_only_it_exists()
+    [Test] public async Task Preferred_file_is_used_when_only_it_exists()
     {
         var p = new FakeProvider(Files((Preferred, PreferredYaml)));
         var r = await GroupConfigLoader.LoadAsync(p, Repo, default);
-        Assert.Equal(Preferred, r.SourcePath);
-        Assert.Equal("Preferred", Assert.Single(r.Result.Config.Groups).Name);
-        Assert.Equal([(Repo, Preferred)], p.Requests); // legacy is not even requested
+        await Assert.That(r.SourcePath).IsEqualTo(Preferred);
+        await Assert.That(Enumerable.Single(r.Result.Config.Groups).Name).IsEqualTo("Preferred");
+        await Assert.That(p.Requests).IsEquivalentTo([(Repo, Preferred)], CollectionOrdering.Matching); // legacy is not even requested
     }
 
-    [Fact] public async Task Legacy_file_still_works_when_the_preferred_file_is_missing()
+    [Test] public async Task Legacy_file_still_works_when_the_preferred_file_is_missing()
     {
         var p = new FakeProvider(Files((Legacy, LegacyYaml)));
         var r = await GroupConfigLoader.LoadAsync(p, Repo, default);
-        Assert.Equal(Legacy, r.SourcePath);
-        Assert.Equal("Legacy", Assert.Single(r.Result.Config.Groups).Name);
-        Assert.Empty(r.Result.Diagnostics);
-        Assert.Equal([Preferred, Legacy], p.Requests.Select(x => x.Path));
+        await Assert.That(r.SourcePath).IsEqualTo(Legacy);
+        await Assert.That(Enumerable.Single(r.Result.Config.Groups).Name).IsEqualTo("Legacy");
+        await Assert.That(r.Result.Diagnostics).IsEmpty();
+        await Assert.That(p.Requests.Select(x => x.Path)).IsEquivalentTo([Preferred, Legacy], CollectionOrdering.Matching);
     }
 
-    [Fact] public async Task Preferred_wins_over_legacy_when_both_exist()
+    [Test] public async Task Preferred_wins_over_legacy_when_both_exist()
     {
         var r = await GroupConfigLoader.LoadAsync(new FakeProvider(Files((Preferred, PreferredYaml), (Legacy, LegacyYaml))), Repo, default);
-        Assert.Equal(Preferred, r.SourcePath);
-        Assert.Equal("Preferred", Assert.Single(r.Result.Config.Groups).Name);
+        await Assert.That(r.SourcePath).IsEqualTo(Preferred);
+        await Assert.That(Enumerable.Single(r.Result.Config.Groups).Name).IsEqualTo("Preferred");
     }
 
-    [Fact] public async Task Missing_files_mean_no_configuration_and_no_diagnostics()
+    [Test] public async Task Missing_files_mean_no_configuration_and_no_diagnostics()
     {
         var r = await GroupConfigLoader.LoadAsync(new FakeProvider([]), Repo, default);
-        Assert.Null(r.SourcePath);
-        Assert.Empty(r.Result.Config.Groups);
-        Assert.Empty(r.Result.Diagnostics);
+        await Assert.That(r.SourcePath).IsNull();
+        await Assert.That(r.Result.Config.Groups).IsEmpty();
+        await Assert.That(r.Result.Diagnostics).IsEmpty();
     }
 
-    [Fact] public async Task Invalid_preferred_file_is_reported_and_never_falls_back_to_legacy()
+    [Test] public async Task Invalid_preferred_file_is_reported_and_never_falls_back_to_legacy()
     {
         var p = new FakeProvider(Files((Preferred, "groups:\n  - name: X\n    workflow: [a]\n"), (Legacy, LegacyYaml)));
         var r = await GroupConfigLoader.LoadAsync(p, Repo, default);
-        Assert.Equal(Preferred, r.SourcePath);
-        Assert.True(r.Result.HasErrors);
-        Assert.DoesNotContain(r.Result.Config.Groups, g => g.Name == "Legacy");
-        Assert.DoesNotContain(p.Requests, x => x.Path == Legacy);
-        Assert.StartsWith(".github/ciworkbench.yml line 3:", r.Result.Diagnostics.First(d => d.Line == 3).ToString(r.SourcePath!));
+        await Assert.That(r.SourcePath).IsEqualTo(Preferred);
+        await Assert.That(r.Result.HasErrors).IsTrue();
+        await Assert.That(r.Result.Config.Groups).DoesNotContain(g => g.Name == "Legacy");
+        await Assert.That(p.Requests).DoesNotContain(x => x.Path == Legacy);
+        await Assert.That(r.Result.Diagnostics.First(d => d.Line == 3).ToString(r.SourcePath!)).StartsWith(".github/ciworkbench.yml line 3:");
     }
 
-    [Fact] public async Task Syntax_error_in_preferred_file_ignores_it_entirely_without_using_legacy()
+    [Test] public async Task Syntax_error_in_preferred_file_ignores_it_entirely_without_using_legacy()
     {
         var r = await GroupConfigLoader.LoadAsync(new FakeProvider(Files((Preferred, "groups: [unclosed\n"), (Legacy, LegacyYaml))), Repo, default);
-        Assert.Equal(Preferred, r.SourcePath);
-        Assert.Contains(r.Result.Diagnostics, d => d.Code == "syntax-error");
-        Assert.Empty(r.Result.Config.Groups);
+        await Assert.That(r.SourcePath).IsEqualTo(Preferred);
+        await Assert.That(r.Result.Diagnostics).Contains(d => d.Code == "syntax-error");
+        await Assert.That(r.Result.Config.Groups).IsEmpty();
     }
 
-    [Fact] public async Task Invalid_legacy_file_is_reported_against_the_legacy_path()
+    [Test] public async Task Invalid_legacy_file_is_reported_against_the_legacy_path()
     {
         var r = await GroupConfigLoader.LoadAsync(new FakeProvider(Files((Legacy, "version: 99\n"))), Repo, default);
-        Assert.Equal(Legacy, r.SourcePath);
-        Assert.True(r.Result.HasErrors);
-        Assert.StartsWith(".ciworkbench.yml line 1:", r.Result.Diagnostics[0].ToString(r.SourcePath!));
+        await Assert.That(r.SourcePath).IsEqualTo(Legacy);
+        await Assert.That(r.Result.HasErrors).IsTrue();
+        await Assert.That(r.Result.Diagnostics[0].ToString(r.SourcePath!)).StartsWith(".ciworkbench.yml line 1:");
     }
 
-    [Fact] public async Task Empty_preferred_file_counts_as_existing_and_hides_the_legacy_file()
+    [Test] public async Task Empty_preferred_file_counts_as_existing_and_hides_the_legacy_file()
     {
         var r = await GroupConfigLoader.LoadAsync(new FakeProvider(Files((Preferred, "# nothing yet\n"), (Legacy, LegacyYaml))), Repo, default);
-        Assert.Equal(Preferred, r.SourcePath);
-        Assert.Empty(r.Result.Config.Groups);
+        await Assert.That(r.SourcePath).IsEqualTo(Preferred);
+        await Assert.That(r.Result.Config.Groups).IsEmpty();
     }
 
-    [Fact] public async Task Unreadable_preferred_file_warns_and_does_not_fall_back()
+    [Test] public async Task Unreadable_preferred_file_warns_and_does_not_fall_back()
     {
         var p = new FakeProvider(Files((Legacy, LegacyYaml)), [(Repo, Preferred)]);
         var r = await GroupConfigLoader.LoadAsync(p, Repo, default);
-        Assert.Equal(Preferred, r.SourcePath);
-        Assert.Empty(r.Result.Config.Groups);
-        Assert.Contains(r.Result.Diagnostics, d => d.Code == "unreadable" && d.Severity == ConfigSeverity.Warning);
-        Assert.False(r.Result.HasErrors);
+        await Assert.That(r.SourcePath).IsEqualTo(Preferred);
+        await Assert.That(r.Result.Config.Groups).IsEmpty();
+        await Assert.That(r.Result.Diagnostics).Contains(d => d.Code == "unreadable" && d.Severity == ConfigSeverity.Warning);
+        await Assert.That(r.Result.HasErrors).IsFalse();
     }
 
-    [Fact] public async Task Unreadable_legacy_file_warns_after_a_missing_preferred_file()
+    [Test] public async Task Unreadable_legacy_file_warns_after_a_missing_preferred_file()
     {
         var r = await GroupConfigLoader.LoadAsync(new FakeProvider([], [(Repo, Legacy)]), Repo, default);
-        Assert.Equal(Legacy, r.SourcePath);
-        Assert.Contains(r.Result.Diagnostics, d => d.Code == "unreadable");
+        await Assert.That(r.SourcePath).IsEqualTo(Legacy);
+        await Assert.That(r.Result.Diagnostics).Contains(d => d.Code == "unreadable");
     }
 
-    [Fact] public async Task Only_the_selected_repository_is_queried_and_only_the_two_config_paths()
+    [Test] public async Task Only_the_selected_repository_is_queried_and_only_the_two_config_paths()
     {
         var other = new RepoRef("acme", "other");
         var files = Files((Preferred, PreferredYaml));
         files[(other, Preferred)] = "groups:\n  - name: Other\n";
         var p = new FakeProvider(files);
         var r = await GroupConfigLoader.LoadAsync(p, Repo, default);
-        Assert.Equal("Preferred", r.Result.Config.Groups[0].Name);
-        Assert.All(p.Requests, x => Assert.Equal(Repo, x.Repo));
-        Assert.All(p.Requests, x => Assert.Contains(x.Path, GroupConfigContract.SearchPaths));
+        await Assert.That(r.Result.Config.Groups[0].Name).IsEqualTo("Preferred");
+        foreach (var x in p.Requests)
+        {
+            await Assert.That(x.Repo).IsEqualTo(Repo);
+            await Assert.That(GroupConfigContract.SearchPaths).Contains(x.Path);
+        }
     }
 
-    [Fact] public async Task Same_contract_applies_to_both_locations()
+    [Test] public async Task Same_contract_applies_to_both_locations()
     {
         var a = await GroupConfigLoader.LoadAsync(new FakeProvider(Files((Preferred, PreferredYaml))), Repo, default);
         var b = await GroupConfigLoader.LoadAsync(new FakeProvider(Files((Legacy, PreferredYaml))), Repo, default);
-        Assert.Equal(a.Result.Config.Groups.Select(g => (g.Name, string.Join(",", g.Workflows))), b.Result.Config.Groups.Select(g => (g.Name, string.Join(",", g.Workflows))));
-        Assert.Equal(a.Result.Diagnostics.Select(d => d.Message), b.Result.Diagnostics.Select(d => d.Message));
+        await Assert.That(b.Result.Config.Groups.Select(g => (g.Name, string.Join(",", g.Workflows)))).IsEquivalentTo(a.Result.Config.Groups.Select(g => (g.Name, string.Join(",", g.Workflows))), CollectionOrdering.Matching);
+        await Assert.That(b.Result.Diagnostics.Select(d => d.Message)).IsEquivalentTo(a.Result.Diagnostics.Select(d => d.Message), CollectionOrdering.Matching);
     }
 
-    [Fact] public void Diagnostics_keep_the_legacy_file_name_by_default_and_name_the_source_on_request()
+    [Test] public async Task Diagnostics_keep_the_legacy_file_name_by_default_and_name_the_source_on_request()
     {
         var d = new ConfigDiagnostic(ConfigSeverity.Error, "x", "boom", 4);
-        Assert.Equal(".ciworkbench.yml line 4: boom", d.ToString());
-        Assert.Equal(".github/ciworkbench.yml line 4: boom", d.ToString(Preferred));
+        await Assert.That(d.ToString()).IsEqualTo(".ciworkbench.yml line 4: boom");
+        await Assert.That(d.ToString(Preferred)).IsEqualTo(".github/ciworkbench.yml line 4: boom");
     }
 
-    [Fact] public void Published_schema_is_location_independent()
+    [Test] public async Task Published_schema_is_location_independent()
     {
         var text = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "contract", "ciworkbench.schema.json"));
         var root = JsonNode.Parse(text)!.AsObject();
-        Assert.Contains(".github/ciworkbench.yml", root["title"]!.GetValue<string>());
-        Assert.Equal(GroupConfigContract.SchemaUrl, root["$id"]!.GetValue<string>());
+        await Assert.That(root["title"]!.GetValue<string>()).Contains(".github/ciworkbench.yml");
+        await Assert.That(root["$id"]!.GetValue<string>()).IsEqualTo(GroupConfigContract.SchemaUrl);
     }
 }

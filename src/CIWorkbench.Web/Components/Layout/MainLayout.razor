@@ -57,7 +57,7 @@
         }
         <button type="button" class="topbtn more-toggle" @onclick="ToggleMore" aria-label="More actions" aria-expanded="@(_moreOpen ? "true" : "false")" aria-controls="top-actions" data-testid="more-toggle"><Icon Name="more" Size="20" /></button>
         <div class="top-actions" id="top-actions">
-            <button type="button" class="ciw-btn" @onclick="Signals.RequestRefresh" disabled="@(Session.Selected is null)" aria-label="Refresh active repository" title="Refresh (throttled)"><Icon Name="refresh" Size="16" /> Refresh</button>
+            <button type="button" class="ciw-btn" @onclick="Signals.RequestRefresh" disabled="@(!Signals.CanRefresh)" aria-label="Refresh this page" title="@RefreshTitle" data-testid="refresh"><Icon Name="refresh" Size="16" /> Refresh</button>
             <span class="updated ciw-muted" aria-live="polite">@(Signals.IsLoading ? "Refreshing…" : Signals.LastUpdated is null ? "Not loaded" : $"Updated {Fmt.Ago(Signals.LastUpdated, Time.GetUtcNow())}")</span>
             <DensityToggle />
             <span class="theme-desktop"><ThemeMenu /></span>
@@ -84,7 +84,8 @@
 </div>
 
 @code {
-    private string Org { get; set; } = "";
+    private string Org => Session.OrgFilter ?? "";
+    private int _seenSource;
     private Timer? _tick;
     private bool _prefsLoaded;
     private bool _sidebarCollapsed;
@@ -102,6 +103,7 @@
     private IEnumerable<string> Owners => Session.Repositories.Select(r => r.Ref.Owner).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase);
     private IEnumerable<RepositoryInfo> ReposInOrg => Session.Repositories.Where(r => _narrow || string.IsNullOrEmpty(Org) || r.Ref.Owner.Equals(Org, StringComparison.OrdinalIgnoreCase)).OrderBy(r => r.Ref.FullName, StringComparer.OrdinalIgnoreCase).Take(500);
 
+    private string RefreshTitle => !Signals.CanRefresh ? "Nothing to refresh on this page" : Signals.IsLoading ? "Refreshing…" : "Refresh (throttled)";
     private string SearchPlaceholder => Session.Selected is { } s ? $"Search in {s.Name}: workflows, runs, branches…" : "Open a repository to search its workflows and runs";
     private string ConnClass => Session.Connection is null ? "unknown" : Session.Connection.IsHealthy ? "ok" : "bad";
     private string ConnLabel => Session.Tracker.IsThrottled(Time.GetUtcNow()) ? "Rate limited" : Session.Connection is null ? "GitHub: not verified" : Session.Connection.IsHealthy ? $"GitHub: {Session.Connection.Account}" : "GitHub: problem";
@@ -112,6 +114,7 @@
     protected override void OnInitialized()
     {
         Theme.Changed += OnThemeChanged;
+        _seenSource = Session.SourceVersion;
         Session.Changed += OnChanged; Signals.Changed += OnChanged; Prefs.Changed += OnPrefsChanged; Inspector.Changed += OnInspector; Nav.LocationChanged += OnLocation;
         _tick = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(20));
         if (Session.Discovery == DiscoveryState.Idle) _ = Session.StartDiscoveryAsync();
@@ -146,7 +149,13 @@
 
     private void OnChanged()
     {
-        if (Session.Selected is { } s) Org = s.Owner;
+        // The data source flipped (demo <-> live): drop everything that described the old one so no stale "Updated just now",
+        // search text or open run from the previous source survives.
+        if (Session.SourceVersion != _seenSource)
+        {
+            _seenSource = Session.SourceVersion;
+            Signals.Reset(); Inspector.Clear(); Prefs.FilterRepo = null;
+        }
         InvokeAsync(StateHasChanged);
     }
 
@@ -292,7 +301,7 @@
         });
     }
 
-    private void OnOrg(ChangeEventArgs e) => Org = e.Value?.ToString() ?? "";
+    private void OnOrg(ChangeEventArgs e) => Session.SetOrg(e.Value?.ToString());
 
     private void OnRepo(ChangeEventArgs e)
     {

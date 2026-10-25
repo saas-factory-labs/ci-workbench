@@ -6,6 +6,8 @@ using CIWorkbench.Core.Models;
 using Microsoft.Extensions.DependencyInjection;
 using CIWorkbench.GitHub;
 using CIWorkbench.Web;
+using TUnit.Assertions.Enums;
+using System.Threading.Tasks;
 
 namespace CIWorkbench.Web.Tests;
 
@@ -27,22 +29,22 @@ public class ComponentTests : BunitContext
     private async Task<IRenderedComponent<RepositoryWorkspace>> RenderWorkspace(RepoRef repo, Action<ComponentParameterCollectionBuilder<RepositoryWorkspace>>? more = null)
     {
         var cut = Render<RepositoryWorkspace>(p => { p.Add(c => c.Repo, repo); p.Add(c => c.AutoRefresh, false); more?.Invoke(p); });
-        await cut.WaitForAssertionAsync(() => Assert.NotEmpty(cut.FindAll("[data-group]")), TimeSpan.FromSeconds(10));
+        await Assert.That(cut.FindAll("[data-group]")).IsNotEmpty();
         return cut;
     }
 
-    [Fact]
+    [Test]
     public async Task Monorepo_renders_groups_collapsed_and_workflows_only_when_expanded()
     {
         var cut = await RenderWorkspace(DemoCiProvider.Monorepo);
         var all = cut.FindAll("[data-group]");
-        Assert.True(all.Count >= 5);
+        await Assert.That(all.Count >= 5).IsTrue();
         var before = cut.FindAll("[data-workflow]").Count;
         cut.Find("[data-group] .ciw-group-head").Click();
-        Assert.True(cut.FindAll("[data-workflow]").Count > before);
+        await Assert.That(cut.FindAll("[data-workflow]").Count > before).IsTrue();
     }
 
-    [Fact]
+    [Test]
     public async Task Expand_state_is_preserved_across_rerender()
     {
         var cut = await RenderWorkspace(DemoCiProvider.Monorepo);
@@ -50,14 +52,14 @@ public class ComponentTests : BunitContext
         cut.Find("[data-group] .ciw-group-head").Click();
         var open = prefs.ExpandedKeys.Count(k => k.StartsWith("group|"));
         cut.Render();
-        Assert.Equal(open, prefs.ExpandedKeys.Count(k => k.StartsWith("group|")));
-        Assert.Equal("true", cut.Find("[data-group] .ciw-group-toggle").GetAttribute("aria-expanded"));
-        Assert.All(prefs.ExpandedKeys.Where(k => k.StartsWith("group|")), k => Assert.StartsWith("group|example-org/platform-monorepo|", k));   // state is per repository
+        await Assert.That(prefs.ExpandedKeys.Count(k => k.StartsWith("group|"))).IsEqualTo(open);
+        await Assert.That(cut.Find("[data-group] .ciw-group-toggle").GetAttribute("aria-expanded")).IsEqualTo("true");
+        foreach (var k in prefs.ExpandedKeys.Where(k => k.StartsWith("group|"))) await Assert.That(k).StartsWith("group|example-org/platform-monorepo|");   // state is per repository
         cut.Find("[data-group] .ciw-group-head").Click();
-        Assert.Equal("false", cut.Find("[data-group] .ciw-group-toggle").GetAttribute("aria-expanded"));
+        await Assert.That(cut.Find("[data-group] .ciw-group-toggle").GetAttribute("aria-expanded")).IsEqualTo("false");
     }
 
-    [Fact]
+    [Test]
     public async Task Search_filters_workflows_and_status_chip_filters_by_latest_state()
     {
         var cut = await RenderWorkspace(DemoCiProvider.Monorepo);
@@ -65,37 +67,37 @@ public class ComponentTests : BunitContext
         if (cut.FindAll("[data-action=collapse-all]").Count > 0) cut.Find("[data-action=collapse-all]").Click();
         cut.Find("[data-action=expand-all]").Click();
         var failed = cut.FindAll("[data-workflow]").Select(e => e.GetAttribute("data-workflow")).ToList();
-        Assert.NotEmpty(failed);
-        Assert.Contains(".github/workflows/container-scan.yml", failed);
+        await Assert.That(failed).IsNotEmpty();
+        await Assert.That(failed).Contains(".github/workflows/container-scan.yml");
         Services.GetRequiredService<WorkspaceSignals>().SetSearch("container-scan");
-        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("[data-workflow]")));
+        await Assert.That(cut.FindAll("[data-workflow]")).HasSingleItem();
     }
 
-    [Fact]
+    [Test]
     public async Task Actor_repo_shows_attention_summary_and_a_failing_workflow_previews_without_a_run_table()
     {
         RunSelection? picked = null;
         var cut = await RenderWorkspace(DemoCiProvider.ActorRepo, p => p.Add(c => c.OnRunSelected, EventCallback.Factory.Create<RunSelection>(this, s => picked = s)));
-        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-testid=failure-banner]")));
-        Assert.Empty(cut.FindAll(".ciw-wf.open"));                                          // nothing expands by itself, even in a tiny repository
+        await Assert.That(cut.FindAll("[data-testid=failure-banner]")).IsNotEmpty();
+        await Assert.That(cut.FindAll(".ciw-wf.open")).IsEmpty();                                          // nothing expands by itself, even in a tiny repository
         cut.Find("[data-health=failingnow] .ciw-wf-toggle").Click();
-        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-testid=preview-failure]")));
-        Assert.Empty(cut.FindAll("[data-testid=quick-preview] table"));                     // a preview is never a run table
+        await Assert.That(cut.FindAll("[data-testid=preview-failure]")).IsNotEmpty();
+        await Assert.That(cut.FindAll("[data-testid=quick-preview] table")).IsEmpty();                     // a preview is never a run table
         cut.Find("[data-action=quick-inspect]").Click();
-        Assert.NotNull(picked);
-        Assert.Equal(DemoCiProvider.ActorRepo, picked!.Repo);
+        await Assert.That(picked).IsNotNull();
+        await Assert.That(picked!.Repo).IsEqualTo(DemoCiProvider.ActorRepo);
     }
 
-    [Fact]
+    [Test]
     public async Task Workflow_details_failure_tab_lists_two_recurring_series_and_one_oneoff()
     {
         var provider = Services.GetRequiredService<ICiProvider>();
         var failing = (await provider.ListRecentRunsAsync(DemoCiProvider.ActorRepo, 100, default)).First(r => r.State == RunState.Failure).WorkflowId;
         var cut = Render<WorkflowDetails>(p => { p.Add(c => c.Repo, DemoCiProvider.ActorRepo); p.Add(c => c.WorkflowId, failing); p.Add(c => c.Query, new WorkflowDetailsQuery(Tab: "failures")); });
-        cut.WaitForAssertion(() => Assert.Equal(2, cut.FindAll("[data-series]").Count), TimeSpan.FromSeconds(10));
-        Assert.Single(cut.FindAll("[data-oneoff]"));
+        await Assert.That(cut.FindAll("[data-series]").Count).IsEqualTo(2);
+        await Assert.That(cut.FindAll("[data-oneoff]")).HasSingleItem();
         cut.Find("[data-series]").Click();
-        Assert.NotEmpty(cut.FindAll(".ciw-series-body"));
+        await Assert.That(cut.FindAll(".ciw-series-body")).IsNotEmpty();
     }
 
     private async Task<WorkflowRunInfo> FailedActorRun()
@@ -104,47 +106,47 @@ public class ComponentTests : BunitContext
         return (await provider.ListRecentRunsAsync(DemoCiProvider.ActorRepo, 10, default)).First(r => r.State == RunState.Failure);
     }
 
-    [Fact]
+    [Test]
     public async Task Inspector_summary_is_failure_first_and_labels_the_detected_error_as_heuristic()
     {
         var run = await FailedActorRun();
         var cut = Render<RunInspector>(p => p.Add(c => c.Selection, new RunSelection(DemoCiProvider.ActorRepo, run)));
-        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-testid=failure-summary]")), TimeSpan.FromSeconds(5));
-        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-testid=cause]")), TimeSpan.FromSeconds(5));
-        Assert.Contains("Detected error", cut.Find("[data-testid=cause]").TextContent);
-        Assert.Contains("not interpreted", cut.Find("[data-testid=cause]").TextContent);
-        Assert.NotEmpty(cut.FindAll(".ciw-log .ciw-logline.err"));                    // error line is highlighted
-        Assert.DoesNotContain("##[error]", cut.Find(".ciw-log").TextContent);         // decorations stripped after the error was identified
-        Assert.Contains("Copy context for coding agent", cut.Markup);
-        Assert.DoesNotContain("AI", cut.Find("[data-testid=cause]").TextContent.Replace("detected", ""));   // never claims AI analysis
+        await Assert.That(cut.FindAll("[data-testid=failure-summary]")).IsNotEmpty();
+        await Assert.That(cut.FindAll("[data-testid=cause]")).IsNotEmpty();
+        await Assert.That(cut.Find("[data-testid=cause]").TextContent).Contains("Detected error");
+        await Assert.That(cut.Find("[data-testid=cause]").TextContent).Contains("not interpreted");
+        await Assert.That(cut.FindAll(".ciw-log .ciw-logline.err")).IsNotEmpty();                    // error line is highlighted
+        await Assert.That(cut.Find(".ciw-log").TextContent).DoesNotContain("##[error]");         // decorations stripped after the error was identified
+        await Assert.That(cut.Markup).Contains("Copy context for coding agent");
+        await Assert.That(cut.Find("[data-testid=cause]").TextContent.Replace("detected", "")).DoesNotContain("AI");   // never claims AI analysis
     }
 
-    [Fact]
+    [Test]
     public async Task Inspector_jobs_tab_lists_failed_jobs_first_and_keeps_successful_jobs()
     {
         var run = await FailedActorRun();
         var cut = Render<RunInspector>(p => p.Add(c => c.Selection, new RunSelection(DemoCiProvider.ActorRepo, run)));
-        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-tab=Jobs]")));
+        await Assert.That(cut.FindAll("[data-tab=Jobs]")).IsNotEmpty();
         cut.Find("[data-tab=Jobs]").Click();
         var jobs = cut.FindAll(".ciw-jobitem");
-        Assert.Contains("fail", jobs[0].ClassList);
-        Assert.Contains(jobs, j => j.ClassList.Contains("ok"));                         // passed jobs are preserved
-        Assert.Equal("true", cut.Find("[data-tab=Jobs]").GetAttribute("aria-selected"));
+        await Assert.That(jobs[0].ClassList).Contains("fail");
+        await Assert.That(jobs).Contains(j => j.ClassList.Contains("ok"));                         // passed jobs are preserved
+        await Assert.That(cut.Find("[data-tab=Jobs]").GetAttribute("aria-selected")).IsEqualTo("true");
     }
 
-    [Fact]
+    [Test]
     public async Task Inspector_logs_tab_is_bounded_and_has_a_view_full_logs_action_disabled_in_demo()
     {
         var run = await FailedActorRun();
         var cut = Render<RunInspector>(p => p.Add(c => c.Selection, new RunSelection(DemoCiProvider.ActorRepo, run)));
-        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-testid=cause]")), TimeSpan.FromSeconds(5));
-        Assert.Contains("View full logs", cut.Markup);
-        Assert.Contains("disabled", cut.Find(".ciw-insp-actions .ciw-btn.disabled").ClassList);
+        await Assert.That(cut.FindAll("[data-testid=cause]")).IsNotEmpty();
+        await Assert.That(cut.Markup).Contains("View full logs");
+        await Assert.That(cut.Find(".ciw-insp-actions .ciw-btn.disabled").ClassList).Contains("disabled");
         cut.Find("[data-tab=Logs]").Click();
-        Assert.True(cut.FindAll(".ciw-log .ciw-logline").Count <= 120);
+        await Assert.That(cut.FindAll(".ciw-log .ciw-logline").Count <= 120).IsTrue();
     }
 
-    [Fact]
+    [Test]
     public async Task Inspector_header_close_and_similar_failures_raise_host_callbacks()
     {
         var run = await FailedActorRun();
@@ -155,42 +157,42 @@ public class ComponentTests : BunitContext
             p.Add(c => c.OnClose, EventCallback.Factory.Create(this, () => closed++));
             p.Add(c => c.OnInspectSimilar, EventCallback.Factory.Create<RunSelection>(this, s => similar = s));
         });
-        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-action=inspect-similar]")));
-        Assert.NotEmpty(cut.FindAll("[data-testid=inspector-header]"));
+        await Assert.That(cut.FindAll("[data-action=inspect-similar]")).IsNotEmpty();
+        await Assert.That(cut.FindAll("[data-testid=inspector-header]")).IsNotEmpty();
         cut.Find("[data-action=inspect-similar]").Click();
-        Assert.Equal(run.Id, similar!.Run.Id);
+        await Assert.That(similar!.Run.Id).IsEqualTo(run.Id);
         cut.Find("[data-testid=inspector-close]").Click();
-        Assert.Equal(1, closed);
+        await Assert.That(closed).IsEqualTo(1);
     }
 
-    [Fact]
-    public void Inspector_without_selection_shows_placeholder() =>
-        Assert.Contains("Select a run", Render<RunInspector>().Markup);
+    [Test]
+    public async Task Inspector_without_selection_shows_placeholder() =>
+        await Assert.That(Render<RunInspector>().Markup).Contains("Select a run");
 
-    [Fact]
-    public void Density_toggle_switches_preferences_without_reload()
+    [Test]
+    public async Task Density_toggle_switches_preferences_without_reload()
     {
-        Assert.Equal("true", Render<DensityToggle>().FindAll("button")[0].GetAttribute("aria-pressed"));
+        await Assert.That(Render<DensityToggle>().FindAll("button")[0].GetAttribute("aria-pressed")).IsEqualTo("true");
         var prefs = Services.GetRequiredService<UiPreferences>();
         var cut = Render<DensityToggle>();
         cut.FindAll("button").First(b => b.TextContent == "Compact").Click();
-        Assert.Equal(Density.Compact, prefs.Density);
-        Assert.Contains("on", cut.FindAll("button").First(b => b.TextContent == "Compact").ClassList);
+        await Assert.That(prefs.Density).IsEqualTo(Density.Compact);
+        await Assert.That(cut.FindAll("button").First(b => b.TextContent == "Compact").ClassList).Contains("on");
     }
 
-    [Fact]
+    [Test]
     public async Task Failures_view_lists_series_per_workflow()
     {
         var cut = Render<RepositoryWorkspace>(p => { p.Add(c => c.Repo, DemoCiProvider.ActorRepo); p.Add(c => c.View, WorkspaceView.Failures); p.Add(c => c.AutoRefresh, false); });
-        await cut.WaitForAssertionAsync(() => Assert.Equal(2, cut.FindAll("[data-series]").Count), TimeSpan.FromSeconds(10));
+        await Assert.That(cut.FindAll("[data-series]").Count).IsEqualTo(2);
     }
 
-    [Fact]
-    public void Components_do_not_depend_on_host_layout_or_routes()
+    [Test]
+    public async Task Components_do_not_depend_on_host_layout_or_routes()
     {
         var asm = typeof(RepositoryWorkspace).Assembly;
-        Assert.DoesNotContain(asm.GetTypes(), t => t.GetCustomAttributes(typeof(Microsoft.AspNetCore.Components.RouteAttribute), true).Length > 0);
-        Assert.DoesNotContain(asm.GetReferencedAssemblies(), a => a.Name!.Contains("SaaS", StringComparison.OrdinalIgnoreCase) || a.Name!.Contains("AppBlueprint", StringComparison.OrdinalIgnoreCase));
+        await Assert.That(asm.GetTypes()).DoesNotContain(t => t.GetCustomAttributes(typeof(Microsoft.AspNetCore.Components.RouteAttribute), true).Length > 0);
+        await Assert.That(asm.GetReferencedAssemblies()).DoesNotContain(a => a.Name!.Contains("SaaS", StringComparison.OrdinalIgnoreCase) || a.Name!.Contains("AppBlueprint", StringComparison.OrdinalIgnoreCase));
     }
 }
 
@@ -210,7 +212,7 @@ public class OverviewRefinementTests : BunitContext
     private async Task<IRenderedComponent<RepositoryWorkspace>> Workspace(RepoRef repo, string? defaultBranch = "main")
     {
         var cut = Render<RepositoryWorkspace>(p => { p.Add(c => c.Repo, repo); p.Add(c => c.DefaultBranch, defaultBranch); p.Add(c => c.AutoRefresh, false); });
-        await cut.WaitForAssertionAsync(() => Assert.NotEmpty(cut.FindAll("[data-group]")), TimeSpan.FromSeconds(10));
+        await Assert.That(cut.FindAll("[data-group]")).IsNotEmpty();
         return cut;
     }
 
@@ -220,127 +222,130 @@ public class OverviewRefinementTests : BunitContext
         cut.Find("[data-action=expand-all]").Click();
     }
 
-    [Fact]
+    [Test]
     public async Task Exactly_three_kpis_and_metadata_row_are_shown()
     {
         var cut = await Workspace(DemoCiProvider.Monorepo);
-        Assert.Equal(3, cut.FindAll(".ciw-kpi").Count);
-        Assert.Equal("success,attention,duration", string.Join(",", cut.FindAll(".ciw-kpi").Select(k => k.GetAttribute("data-kpi"))));
+        await Assert.That(cut.FindAll(".ciw-kpi").Count).IsEqualTo(3);
+        await Assert.That(string.Join(",", cut.FindAll(".ciw-kpi").Select(k => k.GetAttribute("data-kpi")))).IsEqualTo("success,attention,duration");
         var meta = cut.Find("[data-testid=repo-meta]").TextContent;
-        Assert.Contains("workflows", meta); Assert.Contains("Latest run", meta); Assert.Contains("default branch", meta);
-        Assert.Contains("failing now", cut.Find("[data-kpi=attention]").TextContent);
+        await Assert.That(meta).Contains("workflows"); await Assert.That(meta).Contains("Latest run"); await Assert.That(meta).Contains("default branch");
+        await Assert.That(cut.Find("[data-kpi=attention]").TextContent).Contains("failing now");
     }
 
-    [Fact]
+    [Test]
     public async Task Workflow_rows_keep_left_chevron_and_status_badge_without_status_icons_or_paths()
     {
         var cut = await Workspace(DemoCiProvider.Monorepo);
         ExpandEverything(cut);
         var heads = cut.FindAll("[data-workflow] .ciw-wf-head");
-        Assert.NotEmpty(heads);
+        await Assert.That(heads).IsNotEmpty();
         foreach (var h in heads)
         {
-            Assert.NotNull(h.QuerySelector(".ciw-wf-main > .ciw-wf-toggle > svg.ciw-chev"));       // chevron is the first thing in the row
-            Assert.NotNull(h.QuerySelector(".ciw-wf-status .ciw-badge"));                         // status badge column
-            Assert.Null(h.QuerySelector(".ciw-status"));                                          // no standalone status icon next to names
-            Assert.DoesNotContain(".github/workflows", h.TextContent);                            // path is not shown while collapsed
+            await Assert.That(h.QuerySelector(".ciw-wf-main > .ciw-wf-toggle > svg.ciw-chev")).IsNotNull();       // chevron is the first thing in the row
+            await Assert.That(h.QuerySelector(".ciw-wf-status .ciw-badge")).IsNotNull();                         // status badge column
+            await Assert.That(h.QuerySelector(".ciw-status")).IsNull();                                          // no standalone status icon next to names
+            await Assert.That(h.TextContent).DoesNotContain(".github/workflows");                            // path is not shown while collapsed
         }
     }
 
-    [Fact]
+    [Test]
     public async Task Default_branch_is_not_repeated_but_other_branches_are_shown()
     {
         var cut = await Workspace(DemoCiProvider.Monorepo);
         ExpandEverything(cut);
         var flags = cut.FindAll(".ciw-wf-head .ciw-flag.branch").Select(f => f.TextContent.Trim()).ToList();
-        Assert.DoesNotContain("main", flags);
-        Assert.NotEmpty(flags);                                    // fixture has workflows whose latest run is on a feature branch
+        await Assert.That(flags).DoesNotContain("main");
+        await Assert.That(flags).IsNotEmpty();                                    // fixture has workflows whose latest run is on a feature branch
     }
 
-    [Fact]
+    [Test]
     public async Task Recovered_workflow_keeps_success_status_and_is_not_counted_as_failing()
     {
         var cut = await Workspace(DemoCiProvider.Monorepo);
         ExpandEverything(cut);
         var recovered = cut.FindAll("[data-workflow][data-health=recovered]");
-        Assert.NotEmpty(recovered);
+        await Assert.That(recovered).IsNotEmpty();
         foreach (var r in recovered)
         {
-            Assert.Contains("Recovered", r.QuerySelector(".ciw-flags")!.TextContent);
+            await Assert.That(r.QuerySelector(".ciw-flags")!.TextContent).Contains("Recovered");
             var badge = r.QuerySelector(".ciw-wf-status .ciw-badge")!;
-            Assert.True(badge.ClassList.Contains("ciw-ok") || badge.ClassList.Contains("ciw-active") || badge.ClassList.Contains("ciw-wait") || badge.ClassList.Contains("ciw-muted"));
-            Assert.DoesNotContain("Failing now", r.QuerySelector(".ciw-flags")!.TextContent);
+            await Assert.That(badge.ClassList.Contains("ciw-ok") || badge.ClassList.Contains("ciw-active") || badge.ClassList.Contains("ciw-wait") || badge.ClassList.Contains("ciw-muted")).IsTrue();
+            await Assert.That(r.QuerySelector(".ciw-flags")!.TextContent).DoesNotContain("Failing now");
         }
         var failingNow = cut.FindAll("[data-workflow][data-health=failingnow]").Count;
-        Assert.StartsWith(failingNow.ToString(), cut.Find("[data-kpi=attention] .ciw-kpi-value").TextContent);   // no stale failures in the fixture, so every failing-now row counts
+        await Assert.That(cut.Find("[data-kpi=attention] .ciw-kpi-value").TextContent).StartsWith(failingNow.ToString());   // no stale failures in the fixture, so every failing-now row counts
     }
 
-    [Fact]
+    [Test]
     public async Task Recurring_failures_are_flagged_on_the_failing_workflow_only()
     {
         var cut = await Workspace(DemoCiProvider.Monorepo);
         ExpandEverything(cut);
-        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-workflow] .ciw-flag.bad")), TimeSpan.FromSeconds(5));
+        await Assert.That(cut.FindAll("[data-workflow] .ciw-flag.bad")).IsNotEmpty();
         var flagged = cut.FindAll("[data-workflow]").Where(w => w.QuerySelector(".ciw-flags")!.TextContent.Contains("Recurring")).ToList();
-        Assert.NotEmpty(flagged);
-        Assert.All(flagged, w => Assert.Equal("failingnow", w.GetAttribute("data-health")));
-        Assert.All(flagged, w => Assert.Contains("Failed", w.QuerySelector(".ciw-wf-status")!.TextContent));   // primary status is still the real conclusion
+        await Assert.That(flagged).IsNotEmpty();
+        foreach (var w in flagged)
+        {
+            await Assert.That(w.GetAttribute("data-health")).IsEqualTo("failingnow");
+            await Assert.That(w.QuerySelector(".ciw-wf-status")!.TextContent).Contains("Failed");   // primary status is still the real conclusion
+        }
     }
 
-    [Fact]
+    [Test]
     public async Task Needs_attention_filter_hides_healthy_workflows_and_ranks_failures_first()
     {
         var cut = await Workspace(DemoCiProvider.Monorepo);
         var allCount = cut.FindAll("[data-workflow]").Count;
         cut.Find("[data-filter=Attention]").Click();
         var shown = cut.FindAll("[data-workflow]");
-        Assert.NotEmpty(shown);
-        Assert.All(shown, w => Assert.Contains(w.GetAttribute("data-health"), new[] { "failingnow", "recovered" }));
-        Assert.Contains("Healthy workflows are hidden", cut.Find("[data-testid=attention-note]").TextContent);
+        await Assert.That(shown).IsNotEmpty();
+        foreach (var w in shown) await Assert.That(new[] { "failingnow", "recovered" }).Contains(w.GetAttribute("data-health")!);
+        await Assert.That(cut.Find("[data-testid=attention-note]").TextContent).Contains("Healthy workflows are hidden");
         // within every group, no recovered workflow precedes a failing one
         foreach (var g in cut.FindAll("[data-group]"))
         {
             var order = g.QuerySelectorAll("[data-workflow]").Select(w => w.GetAttribute("data-health")).ToList();
             var firstRecovered = order.IndexOf("recovered");
-            if (firstRecovered >= 0) Assert.DoesNotContain("failingnow", order.Skip(firstRecovered));
+            if (firstRecovered >= 0) await Assert.That(order.Skip(firstRecovered)).DoesNotContain("failingnow");
         }
         cut.Find("[data-filter=All]").Click();
         ExpandEverything(cut);
-        Assert.True(cut.FindAll("[data-workflow]").Count > shown.Count);               // All is unchanged by the attention view
-        Assert.True(cut.FindAll("[data-workflow]").Count >= allCount || allCount < cut.FindAll("[data-workflow]").Count + 1);
+        await Assert.That(cut.FindAll("[data-workflow]").Count > shown.Count).IsTrue();               // All is unchanged by the attention view
+        await Assert.That(cut.FindAll("[data-workflow]").Count >= allCount || allCount < cut.FindAll("[data-workflow]").Count + 1).IsTrue();
     }
 
-    [Fact]
+    [Test]
     public async Task Group_order_follows_configuration_not_failures()
     {
         var cut = await Workspace(DemoCiProvider.Monorepo);
         var names = cut.FindAll("[data-group] .ciw-group-name").Select(n => n.TextContent).ToList();
-        Assert.Equal("Build & Test", names[0]);
-        Assert.Equal(["Build & Test", "Security", "Deployment", "Quality", "Packages", "Documentation", "Maintenance", "AI Agents"], names.Take(8).ToArray());
+        await Assert.That(names[0]).IsEqualTo("Build & Test");
+        await Assert.That(names.Take(8).ToArray()).IsEquivalentTo(["Build & Test", "Security", "Deployment", "Quality", "Packages", "Documentation", "Maintenance", "AI Agents"], CollectionOrdering.Matching);
     }
 
-    [Fact]
+    [Test]
     public async Task Search_box_can_be_hidden_when_the_host_has_a_global_search()
     {
         var cut = Render<RepositoryWorkspace>(p => { p.Add(c => c.Repo, DemoCiProvider.ActorRepo); p.Add(c => c.ShowSearch, false); p.Add(c => c.AutoRefresh, false); });
-        await cut.WaitForAssertionAsync(() => Assert.NotEmpty(cut.FindAll("[data-group]")), TimeSpan.FromSeconds(10));
-        Assert.Empty(cut.FindAll(".ciw-toolbar .ciw-searchbox"));
+        await Assert.That(cut.FindAll("[data-group]")).IsNotEmpty();
+        await Assert.That(cut.FindAll(".ciw-toolbar .ciw-searchbox")).IsEmpty();
     }
 
-    [Fact]
+    [Test]
     public async Task Collapsed_rows_use_native_buttons_so_enter_and_space_work()
     {
         var cut = await Workspace(DemoCiProvider.Monorepo);
         if (cut.FindAll("[data-action=collapse-all]").Count > 0) cut.Find("[data-action=collapse-all]").Click();
-        Assert.All(cut.FindAll(".ciw-group-toggle"), b => { Assert.Equal("button", b.TagName.ToLowerInvariant()); Assert.NotNull(b.GetAttribute("aria-expanded")); });
-        Assert.Empty(cut.FindAll(".ciw-group-body"));                                      // collapsed groups render no placeholder rows
+        foreach (var b in cut.FindAll(".ciw-group-toggle")) { await Assert.That(b.TagName.ToLowerInvariant()).IsEqualTo("button"); await Assert.That(b.GetAttribute("aria-expanded")).IsNotNull(); }
+        await Assert.That(cut.FindAll(".ciw-group-body")).IsEmpty();                                      // collapsed groups render no placeholder rows
     }
 
-    [Fact]
-    public void Provider_contract_is_read_only()
+    [Test]
+    public async Task Provider_contract_is_read_only()
     {
         var names = typeof(ICiProvider).GetMethods().Select(m => m.Name).Concat(typeof(ICiProvider).GetProperties().Select(p => p.Name)).ToList();
-        Assert.All(names, n => Assert.True(n.StartsWith("List") || n.StartsWith("Get") || n.StartsWith("get_") || n.StartsWith("Check") || n is "Name" or "IsDemo", $"{n} looks like a write operation"));
+        await Assert.That(names).All(n => n.StartsWith("List") || n.StartsWith("Get") || n.StartsWith("get_") || n.StartsWith("Check") || n is "Name" or "IsDemo");
     }
 }
 
@@ -360,19 +365,19 @@ public class ShellTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Loose;
     }
 
-    [Fact]
-    public void Sidebar_collapses_to_icons_with_tooltips_and_expands_again()
+    [Test]
+    public async Task Sidebar_collapses_to_icons_with_tooltips_and_expands_again()
     {
         Arrange();
         var cut = Render<CIWorkbench.Web.Components.Layout.MainLayout>(p => p.Add(c => c.Body, (RenderFragment)(b => b.AddContent(0, "body"))));
-        Assert.Equal("auto", cut.Find(".shell").GetAttribute("data-sidebar"));
+        await Assert.That(cut.Find(".shell").GetAttribute("data-sidebar")).IsEqualTo("auto");
         cut.Find("[data-testid=sidebar-toggle]").Click();
-        Assert.Equal("collapsed", cut.Find(".shell").GetAttribute("data-sidebar"));
-        Assert.Equal("true", cut.Find("nav.sidebar").GetAttribute("data-collapsed"));
-        Assert.All(cut.FindAll("a.nav"), a => { Assert.False(string.IsNullOrWhiteSpace(a.GetAttribute("title"))); Assert.NotEmpty(a.QuerySelectorAll(".nav-label")); });   // tooltip + accessible label
-        Assert.Equal("false", cut.Find("[data-testid=sidebar-toggle]").GetAttribute("aria-expanded"));
+        await Assert.That(cut.Find(".shell").GetAttribute("data-sidebar")).IsEqualTo("collapsed");
+        await Assert.That(cut.Find("nav.sidebar").GetAttribute("data-collapsed")).IsEqualTo("true");
+        foreach (var a in cut.FindAll("a.nav")) { await Assert.That(string.IsNullOrWhiteSpace(a.GetAttribute("title"))).IsFalse(); await Assert.That(a.QuerySelectorAll(".nav-label")).IsNotEmpty(); }   // tooltip + accessible label
+        await Assert.That(cut.Find("[data-testid=sidebar-toggle]").GetAttribute("aria-expanded")).IsEqualTo("false");
         cut.Find("[data-testid=sidebar-toggle]").Click();
-        Assert.Equal("auto", cut.Find(".shell").GetAttribute("data-sidebar"));
+        await Assert.That(cut.Find(".shell").GetAttribute("data-sidebar")).IsEqualTo("auto");
     }
 
     private async Task<WorkflowRunInfo> SelectARun(IRenderedComponent<CIWorkbench.Web.Components.Layout.MainLayout> cut)
@@ -383,71 +388,71 @@ public class ShellTests : BunitContext
         return run;
     }
 
-    [Fact]
+    [Test]
     public async Task Inspector_is_absent_by_default_opens_on_selection_closes_on_escape_and_keeps_the_selection()
     {
         Arrange();
         var cut = Render<CIWorkbench.Web.Components.Layout.MainLayout>(p => p.Add(c => c.Body, (RenderFragment)(b => b.AddContent(0, "body"))));
-        Assert.Equal("closed", cut.Find(".shell").GetAttribute("data-inspector"));
-        Assert.Empty(cut.FindAll("[data-testid=inspector-pane]"));                           // no permanent rail or column
+        await Assert.That(cut.Find(".shell").GetAttribute("data-inspector")).IsEqualTo("closed");
+        await Assert.That(cut.FindAll("[data-testid=inspector-pane]")).IsEmpty();                           // no permanent rail or column
         await SelectARun(cut);
-        cut.WaitForAssertion(() => Assert.Equal("open", cut.Find(".shell").GetAttribute("data-inspector")));
-        Assert.NotEmpty(cut.FindAll("[data-testid=quick-inspector]"));
+        await Assert.That(cut.Find(".shell").GetAttribute("data-inspector")).IsEqualTo("open");
+        await Assert.That(cut.FindAll("[data-testid=quick-inspector]")).IsNotEmpty();
         await cut.InvokeAsync(() => cut.Instance.OnEscape());
-        cut.WaitForAssertion(() => Assert.Equal("closed", cut.Find(".shell").GetAttribute("data-inspector")));
-        Assert.NotNull(Services.GetRequiredService<InspectorState>().Selection);
+        await Assert.That(cut.Find(".shell").GetAttribute("data-inspector")).IsEqualTo("closed");
+        await Assert.That(Services.GetRequiredService<InspectorState>().Selection).IsNotNull();
     }
 
-    [Fact]
+    [Test]
     public async Task Inspector_can_be_closed_and_reopened_from_the_top_bar()
     {
         Arrange();
         var cut = Render<CIWorkbench.Web.Components.Layout.MainLayout>(p => p.Add(c => c.Body, (RenderFragment)(b => b.AddContent(0, "body"))));
         await SelectARun(cut);
-        cut.WaitForAssertion(() => Assert.Equal("open", cut.Find(".shell").GetAttribute("data-inspector")));
+        await Assert.That(cut.Find(".shell").GetAttribute("data-inspector")).IsEqualTo("open");
         cut.WaitForAssertion(() => cut.Find("[data-testid=inspector-close]").Click());
-        cut.WaitForAssertion(() => Assert.Equal("closed", cut.Find(".shell").GetAttribute("data-inspector")));
+        await Assert.That(cut.Find(".shell").GetAttribute("data-inspector")).IsEqualTo("closed");
         cut.WaitForAssertion(() => cut.Find("[data-testid=inspector-toggle]").Click());
-        cut.WaitForAssertion(() => Assert.Equal("open", cut.Find(".shell").GetAttribute("data-inspector")));
-        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-action=open-run-details]")));                     // the quick inspector always links to the full page
+        await Assert.That(cut.Find(".shell").GetAttribute("data-inspector")).IsEqualTo("open");
+        await Assert.That(cut.FindAll("[data-action=open-run-details]")).IsNotEmpty();                     // the quick inspector always links to the full page
     }
 
-    [Fact]
+    [Test]
     public async Task Navigating_closes_overlays_but_keeps_the_selection_for_the_way_back()
     {
         Arrange();
         var cut = Render<CIWorkbench.Web.Components.Layout.MainLayout>(p => p.Add(c => c.Body, (RenderFragment)(b => b.AddContent(0, "body"))));
         var run = await SelectARun(cut);
-        cut.WaitForAssertion(() => Assert.Equal("open", cut.Find(".shell").GetAttribute("data-inspector")));
+        await Assert.That(cut.Find(".shell").GetAttribute("data-inspector")).IsEqualTo("open");
         Services.GetRequiredService<NavigationManager>().NavigateTo($"repo/example-org/review-scraper-actor/runs/{run.Id}");
-        cut.WaitForAssertion(() => Assert.Equal("closed", cut.Find(".shell").GetAttribute("data-inspector")));
-        Assert.Equal(run.Id, Services.GetRequiredService<InspectorState>().Selection?.Run.Id);
+        await Assert.That(cut.Find(".shell").GetAttribute("data-inspector")).IsEqualTo("closed");
+        await Assert.That(Services.GetRequiredService<InspectorState>().Selection?.Run.Id).IsEqualTo(run.Id);
     }
 
-    [Fact]
+    [Test]
     public async Task Phone_navigation_is_a_drawer_and_only_one_overlay_is_open_at_a_time()
     {
         Arrange();
         var cut = Render<CIWorkbench.Web.Components.Layout.MainLayout>(p => p.Add(c => c.Body, (RenderFragment)(b => b.AddContent(0, "body"))));
         await cut.InvokeAsync(() => cut.Instance.OnViewport(true, false));
-        Assert.Equal("closed", cut.Find(".shell").GetAttribute("data-nav"));
-        Assert.Equal("false", cut.Find("[data-testid=sidebar-toggle]").GetAttribute("aria-expanded"));
+        await Assert.That(cut.Find(".shell").GetAttribute("data-nav")).IsEqualTo("closed");
+        await Assert.That(cut.Find("[data-testid=sidebar-toggle]").GetAttribute("aria-expanded")).IsEqualTo("false");
         cut.Find("[data-testid=sidebar-toggle]").Click();
-        Assert.Equal("open", cut.Find(".shell").GetAttribute("data-nav"));
-        Assert.Equal("true", cut.Find("[data-testid=sidebar-toggle]").GetAttribute("aria-expanded"));
-        Assert.NotEmpty(cut.FindAll("[data-testid=scrim]"));
+        await Assert.That(cut.Find(".shell").GetAttribute("data-nav")).IsEqualTo("open");
+        await Assert.That(cut.Find("[data-testid=sidebar-toggle]").GetAttribute("aria-expanded")).IsEqualTo("true");
+        await Assert.That(cut.FindAll("[data-testid=scrim]")).IsNotEmpty();
         cut.Find("[data-testid=more-toggle]").Click();                                       // opening the actions menu closes the drawer
-        Assert.Equal("open", cut.Find(".shell").GetAttribute("data-more"));
-        Assert.Equal("closed", cut.Find(".shell").GetAttribute("data-nav"));
+        await Assert.That(cut.Find(".shell").GetAttribute("data-more")).IsEqualTo("open");
+        await Assert.That(cut.Find(".shell").GetAttribute("data-nav")).IsEqualTo("closed");
         await cut.InvokeAsync(() => cut.Instance.OnEscape());
-        Assert.Equal("closed", cut.Find(".shell").GetAttribute("data-more"));
+        await Assert.That(cut.Find(".shell").GetAttribute("data-more")).IsEqualTo("closed");
         cut.Find("[data-testid=sidebar-toggle]").Click();
-        Assert.Equal("open", cut.Find(".shell").GetAttribute("data-nav"));
+        await Assert.That(cut.Find(".shell").GetAttribute("data-nav")).IsEqualTo("open");
         Services.GetRequiredService<NavigationManager>().NavigateTo("settings");             // following a link closes the drawer
-        cut.WaitForAssertion(() => Assert.Equal("closed", cut.Find(".shell").GetAttribute("data-nav")));
+        await Assert.That(cut.Find(".shell").GetAttribute("data-nav")).IsEqualTo("closed");
     }
 
-    [Fact]
+    [Test]
     public async Task Phone_repository_picker_lists_full_names_because_the_organisation_picker_is_hidden()
     {
         Arrange();
@@ -455,18 +460,18 @@ public class ShellTests : BunitContext
         await session.StartDiscoveryAsync();
         var cut = Render<CIWorkbench.Web.Components.Layout.MainLayout>(p => p.Add(c => c.Body, (RenderFragment)(b => b.AddContent(0, "body"))));
         await cut.InvokeAsync(() => cut.Instance.OnViewport(true, false));
-        Assert.All(cut.FindAll("[data-testid=repo-select] option").Where(o => !string.IsNullOrEmpty(o.GetAttribute("value"))), o => Assert.Contains("/", o.TextContent));
+        foreach (var o in cut.FindAll("[data-testid=repo-select] option").Where(o => !string.IsNullOrEmpty(o.GetAttribute("value")))) await Assert.That(o.TextContent).Contains("/");
     }
 
-    [Fact]
-    public void Recent_repositories_are_capped_and_link_to_the_full_list()
+    [Test]
+    public async Task Recent_repositories_are_capped_and_link_to_the_full_list()
     {
         Arrange();
         var session = Services.GetRequiredService<AppSession>();
         foreach (var name in new[] { "billing-service", "design-system", "infra-modules", "mobile-app", "data-pipeline", "docs-site" }) session.Select(new RepoRef("example-org", name));
         var cut = Render<CIWorkbench.Web.Components.Layout.SideNav>();
-        Assert.InRange(cut.FindAll("a.recent").Count, 1, 4);
-        Assert.NotEmpty(cut.FindAll("a.all-repos"));
+        await Assert.That(cut.FindAll("a.recent").Count).IsBetween(1,4);
+        await Assert.That(cut.FindAll("a.all-repos")).IsNotEmpty();
     }
 }
 
@@ -484,21 +489,21 @@ public class NavigationTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Loose;
     }
 
-    [Theory]
-    [InlineData("/overview", "Overview")]
-    [InlineData("/repositories", "Repositories")]
-    [InlineData("/repo/example-org/platform-monorepo", "Workflow Groups")]
-    [InlineData("/repo/example-org/platform-monorepo/failures", "Failure Series")]
-    [InlineData("/settings", "Settings")]
-    public void Exactly_one_primary_nav_item_is_active_for_each_route(string path, string expected)
+    [Test]
+    [Arguments("/overview", "Overview")]
+    [Arguments("/repositories", "Repositories")]
+    [Arguments("/repo/example-org/platform-monorepo", "Workflow Groups")]
+    [Arguments("/repo/example-org/platform-monorepo/failures", "Failure Series")]
+    [Arguments("/settings", "Settings")]
+    public async Task Exactly_one_primary_nav_item_is_active_for_each_route(string path, string expected)
     {
         Arrange();
         Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().NavigateTo(path);
         var cut = Render<CIWorkbench.Web.Components.Layout.SideNav>();
         var active = cut.FindAll("a.nav.active");
-        Assert.Single(active);
-        Assert.Contains(expected, active[0].TextContent);
-        Assert.Equal("page", active[0].GetAttribute("aria-current"));
+        await Assert.That(active).HasSingleItem();
+        await Assert.That(active[0].TextContent).Contains(expected);
+        await Assert.That(active[0].GetAttribute("aria-current")).IsEqualTo("page");
     }
 }
 internal sealed class SpyProvider(DemoCiProvider inner) : ICiProvider
@@ -519,7 +524,7 @@ internal sealed class SpyProvider(DemoCiProvider inner) : ICiProvider
 
 public class HistoryWindowTests : BunitContext
 {
-    [Fact]
+    [Test]
     public async Task Selecting_a_workflow_in_a_truncated_window_fetches_one_bounded_page_of_its_own_history()
     {
         var clock = new FixedClock(new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero));
@@ -528,15 +533,15 @@ public class HistoryWindowTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Loose;
         // MaxRuns=60 truncates the shared window (the fixture has ~246 runs), so most workflows hold only 0-2 runs in it.
         var cut = Render<RepositoryWorkspace>(p => { p.Add(c => c.Repo, DemoCiProvider.Monorepo); p.Add(c => c.MaxRuns, 60); p.Add(c => c.AutoRefresh, false); });
-        await cut.WaitForAssertionAsync(() => Assert.NotEmpty(cut.FindAll("[data-group]")), TimeSpan.FromSeconds(10));
+        await Assert.That(cut.FindAll("[data-group]")).IsNotEmpty();
         await Task.Delay(400);
-        Assert.Equal(0, spy.WorkflowRunCalls);                          // the overview never fetches per-workflow history
+        await Assert.That(spy.WorkflowRunCalls).IsEqualTo(0);                          // the overview never fetches per-workflow history
         var before = spy.WorkflowRunCalls;
         if (cut.FindAll("[data-action=collapse-all]").Count > 0) cut.Find("[data-action=collapse-all]").Click();
         cut.Find("[data-action=expand-all]").Click();
         // Open three workflows (the first-view "best" one may already have its history cached).
         for (var i = 0; i < 3; i++) { cut.FindAll("[data-workflow] .ciw-wf-toggle")[i].Click(); await Task.Delay(150); }
-        Assert.InRange(spy.WorkflowRunCalls - before, 1, 3);                 // at most one bounded request per opened workflow, and the cache is used
+        await Assert.That(spy.WorkflowRunCalls - before).IsBetween(1,3);                 // at most one bounded request per opened workflow, and the cache is used
     }
 }
 internal sealed class ConfigOverrideProvider(ICiProvider inner, string configYaml) : ICiProvider
@@ -556,7 +561,7 @@ internal sealed class ConfigOverrideProvider(ICiProvider inner, string configYam
 
 public class ConfigDiagnosticsUiTests : BunitContext
 {
-    [Fact]
+    [Test]
     public async Task Invalid_config_is_explained_with_line_numbers_and_never_hides_a_workflow()
     {
         var clock = new FixedClock(new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero));
@@ -567,16 +572,16 @@ public class ConfigDiagnosticsUiTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = Render<RepositoryWorkspace>(p => { p.Add(c => c.Repo, DemoCiProvider.ActorRepo); p.Add(c => c.AutoRefresh, false); });
-        await cut.WaitForAssertionAsync(() => Assert.NotEmpty(cut.FindAll("[data-group]")), TimeSpan.FromSeconds(10));
+        await Assert.That(cut.FindAll("[data-group]")).IsNotEmpty();
 
         var notices = cut.WaitForElements(".ciw-notice.warn", TimeSpan.FromSeconds(5)).Select(e => e.TextContent).ToList();
-        Assert.Contains(notices, n => n.Contains(".github/ciworkbench.yml line 3") && n.Contains("did you mean 'workflows'"));
-        Assert.Contains(notices, n => n.Contains("was skipped") && n.Contains("'CI'"));
-        Assert.Contains(notices, n => n.Contains("line 7") && n.Contains("missing.yml") && n.Contains("matches no workflow"));
+        await Assert.That(notices).Contains(n => n.Contains(".github/ciworkbench.yml line 3") && n.Contains("did you mean 'workflows'"));
+        await Assert.That(notices).Contains(n => n.Contains("was skipped") && n.Contains("'CI'"));
+        await Assert.That(notices).Contains(n => n.Contains("line 7") && n.Contains("missing.yml") && n.Contains("matches no workflow"));
 
         // the skipped group's workflow is still visible (small repositories open fully); the valid group still applies
         var paths = cut.FindAll("[data-workflow]").Select(e => e.GetAttribute("data-workflow")).ToList();
-        Assert.Contains(".github/workflows/ci.yml", paths);
-        Assert.Contains(".github/workflows/quality.yml", paths);
+        await Assert.That(paths).Contains(".github/workflows/ci.yml");
+        await Assert.That(paths).Contains(".github/workflows/quality.yml");
     }
 }

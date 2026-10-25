@@ -24,6 +24,12 @@ GitHub Actions lists workflows flat and per run. With 40 workflows that is hard 
 
 ## Features
 
+### See what needs attention across all repositories
+
+The Overview is a cross-repository triage dashboard: summary cards, filter chips, a ranked "needs attention" list with the failing step and recent failures per workflow, plus repository health and recent activity. It scans a bounded batch of repositories (with "Check more"), and repositories that are not checked yet are never counted as healthy.
+
+![Overview in demo mode: summary cards, filter chips, an expanded failing workflow with its recent failures, repository health and recent activity](docs/screenshots/dark/overview.webp)
+
 ### Organized workflow workspace
 
 Workflows are grouped and summarized per repository, with status filters and a "needs attention" summary on top.
@@ -88,6 +94,16 @@ dotnet run --project src/CIWorkbench.Web --urls http://localhost:5290
 
 The token is never sent to the browser and never stored in `localStorage`. The standalone host is **single-user and meant for localhost** ([SECURITY.md](SECURITY.md)).
 
+## Run it with Docker
+
+```powershell
+docker compose up --build
+```
+
+Then open <http://localhost:8080>. This starts the app in demo mode (synthetic data, no credentials). The compose file publishes the port on `127.0.0.1` only, because the app is single-user and unauthenticated. Without Compose: `docker build -t ci-workbench .` then `docker run --rm -p 127.0.0.1:8080:8080 ci-workbench`.
+
+Live GitHub data is intentionally **not** available in the container: the app listens on all interfaces inside it, and the host refuses to hold a token when it is reachable beyond loopback (see [SECURITY.md](SECURITY.md)). To use live data, run it standalone as below.
+
 ## Two ways to start it
 
 **1. Standalone (default, nothing else required):**
@@ -128,7 +144,7 @@ Build and test:
 
 ```powershell
 dotnet build CIWorkbench.slnx
-dotnet test tests/CIWorkbench.Core.Tests; dotnet test tests/CIWorkbench.GitHub.Tests; dotnet test tests/CIWorkbench.Web.Tests
+dotnet test --project tests/CIWorkbench.Core.Tests; dotnet test --project tests/CIWorkbench.GitHub.Tests; dotnet test --project tests/CIWorkbench.Web.Tests
 ```
 
 ## Configuring groups

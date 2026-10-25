@@ -195,6 +195,8 @@
     [Parameter] public string? Description { get; set; }
     [Parameter] public string? DefaultBranch { get; set; }
     [Parameter] public int MaxRuns { get; set; } = 100;
+    /// <summary>Identity of the data source behind the provider. When it changes (e.g. demo to live) the workspace reloads even though <see cref="Repo"/> is the same.</summary>
+    [Parameter] public int SourceKey { get; set; }
     [Parameter] public bool AutoRefresh { get; set; } = true;
     /// <summary>Hosts that already offer a global search (sharing <see cref="WorkspaceSignals"/>) can hide the workspace's own filter box.</summary>
     [Parameter] public bool ShowSearch { get; set; } = true;
@@ -228,8 +230,9 @@
     private string _filter { get => Prefs.StatusFilter; set => Prefs.StatusFilter = value; }
     private DateTimeOffset _lastRefresh = DateTimeOffset.MinValue;
     private RepoRef _loadedRepo;
+    private int _loadedSource;
     private CancellationTokenSource _cts = new();
-    private bool _timerStarted;
+    private CancellationTokenSource? _polling;
 
     private string? Search => Signals.SearchText;
 
@@ -277,8 +280,8 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        if (_loadedRepo.Equals(Repo) && _workflows is not null) return;
-        _loadedRepo = Repo;
+        if (_loadedRepo.Equals(Repo) && _loadedSource == SourceKey && (_loading || _workflows is not null || _error is not null)) return;   // already loaded, loading or failed for this repo and source
+        _loadedRepo = Repo; _loadedSource = SourceKey;
         if (Prefs.FilterRepo is not { } fr || !fr.Equals(Repo)) { Prefs.FilterRepo = Repo; _filter = "All"; }
         await ReloadAsync();
     }
@@ -424,8 +427,9 @@
 
     private void StartPolling()
     {
-        if (_timerStarted || !AutoRefresh || Provider.IsDemo) return;
-        _timerStarted = true;
+        // One poll loop per load: it is tied to the current token source, so a reload (new repo or new data source) can start its own immediately.
+        if (_polling == _cts || !AutoRefresh || Provider.IsDemo) return;
+        _polling = _cts;
         _ = PollAsync(_cts.Token);
     }
 
@@ -434,7 +438,6 @@
         using var timer = new PeriodicTimer(RefreshInterval);
         try { while (await timer.WaitForNextTickAsync(ct)) await InvokeAsync(() => RefreshAsync(manual: false)); }
         catch (OperationCanceledException) { }
-        finally { _timerStarted = false; }
     }
 
     private async Task RefreshAsync(bool manual)

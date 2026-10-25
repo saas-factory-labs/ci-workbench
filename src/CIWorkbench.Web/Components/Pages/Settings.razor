@@ -14,16 +14,13 @@
         <h2>Data source</h2>
         <div class="ciw-segmented" role="group" aria-label="Data source">
             <button type="button" class="@(Session.Mode == DataMode.Demo ? "on" : "")" aria-pressed="@(Session.Mode == DataMode.Demo ? "true" : "false")" @onclick="() => Session.SetMode(DataMode.Demo)">Demo data</button>
-            <button type="button" class="@(Session.Mode == DataMode.Live ? "on" : "")" aria-pressed="@(Session.Mode == DataMode.Live ? "true" : "false")" disabled="@(!Session.LiveAvailable)" @onclick="() => Session.SetMode(DataMode.Live)">Live GitHub</button>
+            <button type="button" class="@(Session.Mode == DataMode.Live ? "on" : "")" aria-pressed="@(Session.Mode == DataMode.Live ? "true" : "false")" @onclick="() => Session.SetMode(DataMode.Live)" data-testid="mode-live">Live GitHub</button>
         </div>
-        @if (!Session.LiveAvailable)
-        {
-            <p class="ciw-muted">No token is configured on the server, so live mode is unavailable. The token is never entered or stored in the browser. Supply a read-only fine-grained token server-side:</p>
-            <pre class="code">dotnet user-secrets set "GitHub:Token" "&lt;fine-grained PAT&gt;" --project src/CIWorkbench.Web</pre>
-            <p class="ciw-muted">Then restart (optionally with <code>CIWORKBENCH_MODE=live</code>) or switch here. See docs/development/github-permissions.md.</p>
-        }
+        @if (!Session.LiveAvailable) { <p class="ciw-muted">@(Session.LiveSetupRequested ? "Live GitHub needs a token on the server. Follow the setup guide below." : "Demo data needs no credentials. Choose Live GitHub to see how to connect your own repositories.")</p> }
         else { <p class="ciw-muted">A server-side token is configured (value never shown).</p> }
     </section>
+
+    <LiveOnboarding />
 
     <section class="card">
         <h2>Permissions check</h2>
@@ -61,9 +58,13 @@
 @code {
     private void OnChanged() => InvokeAsync(StateHasChanged);
     protected override void OnInitialized() { Session.Changed += OnChanged; Session.Tracker.Changed += OnChanged; }
+    private int _verifiedSource = -1;
+    // Verify once per data source, also when the user switches to live while this page is open (not only on first render).
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender && Session.Connection is null && !Session.CheckingConnection && Session.Mode == DataMode.Live) await Session.CheckConnectionAsync();
+        if (Session.Mode != DataMode.Live || _verifiedSource == Session.SourceVersion || Session.CheckingConnection) return;
+        _verifiedSource = Session.SourceVersion;
+        if (Session.Connection is null) await Session.CheckConnectionAsync();
     }
     public void Dispose() { Session.Changed -= OnChanged; Session.Tracker.Changed -= OnChanged; }
 

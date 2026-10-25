@@ -1,0 +1,9 @@
+# docker compose up --build   then open http://localhost:8080
+services:
+  ci-workbench:
+    build: .
+    image: ci-workbench
+    ports:
+      # Published on the host's loopback only: the app is single-user and unauthenticated.
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped

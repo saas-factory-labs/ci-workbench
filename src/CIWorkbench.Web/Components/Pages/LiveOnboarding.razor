@@ -1,0 +1,106 @@
+@implements IDisposable
+@inject AppSession Session
+@inject IServiceProvider Services
+
+@* Live-connection guide. Shown while no token is configured on the server; replaced by a short connected state once there is one.
+   Nothing here ever reads, renders or asks for the token itself: it is created on github.com and stored server-side. *@
+
+@if (Session.LiveAvailable)
+{
+    <section class="card ob ob-connected" aria-label="GitHub connection" data-testid="onboarding-connected">
+        <header class="ob-head">
+            <span class="pill ok">Connected</span>
+            <h2>GitHub token configured</h2>
+        </header>
+        <p class="ciw-muted">A read-only token is configured on the server (value never shown). @ConnectionSentence</p>
+        <div class="ob-actions">
+            @if (Session.Mode == DataMode.Demo)
+            {
+                <button type="button" class="ciw-btn" @onclick="() => Session.SetMode(DataMode.Live)" data-action="use-live">Switch to live GitHub</button>
+            }
+            else
+            {
+                <button type="button" class="ciw-btn" @onclick="Session.CheckConnectionAsync" disabled="@Session.CheckingConnection" data-action="verify">Verify permissions</button>
+                <button type="button" class="ciw-btn" @onclick="Session.StartDiscoveryAsync" disabled="@(Session.Discovery == DiscoveryState.Running)" data-action="rediscover">Rediscover repositories</button>
+                <label class="ob-org">Organization
+                    <select aria-label="Organization or account" @onchange="e => Session.SetOrg(e.Value?.ToString())" data-testid="onboarding-org">
+                        <option value="" selected="@(Session.OrgFilter is null)">All accounts</option>
+                        @foreach (var o in Owners) { <option value="@o" selected="@(o == Session.OrgFilter)">@o</option> }
+                    </select>
+                </label>
+            }
+        </div>
+    </section>
+}
+else
+{
+    <section class="card ob" aria-label="Connect live GitHub" data-testid="onboarding">
+        <header class="ob-head">
+            <span class="pill demo">Not connected</span>
+            <h2>Connect live GitHub</h2>
+        </header>
+        <p class="ciw-muted ob-lede">Demo data works without credentials. To see your own repositories, give CIWorkbench a <strong>fine-grained personal access token</strong>. It is read-only, held on the server only, and never written to browser storage, URLs or page markup.</p>
+
+        @if (Blocked)
+        {
+            <div class="ciw-notice warn" role="status" data-testid="onboarding-blocked">
+                Live mode is switched off because this host listens beyond localhost. A token would be held by an unauthenticated server, so only demo data is served. Run it on localhost to use live data.
+            </div>
+        }
+        else
+        {
+            <h3 class="ob-h">Permissions to grant (all read-only)</h3>
+            <ul class="ob-perms" data-testid="onboarding-permissions">
+                <li><strong>Metadata</strong><span class="ob-level">Read-only</span><span class="ciw-muted">find repositories</span></li>
+                <li><strong>Actions</strong><span class="ob-level">Read-only</span><span class="ciw-muted">workflows, runs, jobs and logs</span></li>
+                <li><strong>Contents</strong><span class="ob-level">Read-only</span><span class="ciw-muted">workflow files and <code>.github/ciworkbench.yml</code></span></li>
+            </ul>
+            <p class="ciw-muted ob-fine">Under <em>Repository access</em> choose <strong>All repositories</strong> or <strong>Only select repositories</strong>. CIWorkbench can see exactly the repositories you include. Never grant any Write permission.</p>
+
+            <details class="ob-steps" open="@(!Compact)" data-testid="onboarding-steps">
+                <summary>Setup steps</summary>
+                <ol>
+                    <li>Open <a href="@TokenUrl" target="_blank" rel="noopener noreferrer">GitHub's fine-grained token page <Icon Name="external" Size="13" /></a>.</li>
+                    <li>Name the token and pick its <strong>Resource owner</strong> (your account or the organization).</li>
+                    <li>Choose <strong>All repositories</strong> or <strong>Only select repositories</strong>.</li>
+                    <li>Under <strong>Repository permissions</strong> set Metadata, Actions and Contents to <strong>Read-only</strong>.</li>
+                    <li>Generate the token and copy it once.</li>
+                    <li>Store it on the server, using one of the commands below.</li>
+                    <li><strong>Restart CIWorkbench.</strong> The token is read at startup. Then choose <em>Live GitHub</em>.</li>
+                </ol>
+                <h3 class="ob-h">Store it server-side</h3>
+                <p class="ciw-muted ob-fine">Standalone host:</p>
+                <pre class="code" data-testid="onboarding-cmd-standalone">dotnet user-secrets set "GitHub:Token" "&lt;token&gt;" --project src/CIWorkbench.Web</pre>
+                <p class="ciw-muted ob-fine">With the optional Aspire AppHost (it also starts in live mode):</p>
+                <pre class="code" data-testid="onboarding-cmd-apphost">dotnet user-secrets set "Parameters:github-token" "&lt;token&gt;" --project src/CIWorkbench.AppHost</pre>
+                <p class="ciw-muted ob-fine">Prefer environment variables? Set <code>GitHub__Token</code>. Never put the token in <code>appsettings*.json</code>.</p>
+            </details>
+        }
+
+        <div class="ob-actions">
+            @if (Compact) { <a class="ciw-btn" href="settings">Open Settings</a> }
+            @if (Session.LiveSetupRequested) { <button type="button" class="ciw-btn" @onclick="() => Session.SetMode(DataMode.Demo)" data-action="stay-demo">Keep using demo data</button> }
+        </div>
+    </section>
+}
+
+@code {
+    /// <summary>GitHub's page for creating a fine-grained personal access token.</summary>
+    internal const string TokenUrl = "https://github.com/settings/personal-access-tokens/new";
+
+    /// <summary>Overview shows the setup steps collapsed; Settings shows them open.</summary>
+    [Parameter] public bool Compact { get; set; }
+
+    private bool Blocked => Services.GetService<LiveModePolicy>()?.BlockedByNetworkExposure == true;
+    private IEnumerable<string> Owners => Session.Repositories.Select(r => r.Ref.Owner).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase);
+
+    private string ConnectionSentence => Session.Mode == DataMode.Demo
+        ? "You are viewing demo data; switch to live data when you are ready."
+        : Session.Connection is null ? "Verify the permissions to confirm access."
+        : Session.Connection.IsHealthy ? $"Verified as {Session.Connection.Account}."
+        : "Some permissions are missing; see the permissions check below.";
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    protected override void OnInitialized() => Session.Changed += OnChanged;
+    public void Dispose() => Session.Changed -= OnChanged;
+}

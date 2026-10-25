@@ -80,6 +80,14 @@ async function main() {
   };
   const wanted = (n) => !only || only.has(n);
 
+  if (wanted('overview')) {
+    await open('/overview', '[data-testid=needs-attention] .ov-toggle');
+    await page.waitForFunction(() => !document.querySelector('[data-testid=ov-scan] progress'), null, { timeout: 30000 });
+    await page.locator('[data-testid=needs-attention] .ov-toggle').first().click();
+    await page.waitForSelector('[data-testid=ov-detail]');
+    await page.waitForTimeout(900);
+    await shot('overview', page.locator('[data-testid=repo-health]'), { pad: 12 });
+  }
   if (wanted('repository-workspace')) {
     await open(`/repo/${MONO}`, '.ciw-wf');
     await ensureOpen('Build & Test'); await ensureOpen('Security');
