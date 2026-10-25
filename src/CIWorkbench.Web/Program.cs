@@ -58,6 +58,7 @@ builder.Services.AddScoped<DemoCiProvider>(sp => new DemoCiProvider(sp.GetRequir
 builder.Services.AddSingleton(new LiveModePolicy(remoteReachable));
 builder.Services.AddScoped<AppSession>();
 builder.Services.AddScoped<OverviewData>();
+builder.Services.AddRunnerInsights(builder.Configuration);
 builder.Services.AddScoped<ICiProvider, SwitchableCiProvider>();
 
 var app = builder.Build();

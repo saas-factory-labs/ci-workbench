@@ -45,7 +45,7 @@ public sealed class GitHubCiProvider(
                 catch (OperationCanceledException) { outcome = "cancelled"; throw; }
                 catch (CiProviderException) { outcome = "failed"; throw; }
                 estimated ??= result.LastPage;
-                var items = Parse<List<RepoDto>>(result.Body)!.Select(r => new RepositoryInfo(new RepoRef(r.Owner.Login, r.Name), r.Description, r.DefaultBranch ?? "main", r.Private, r.HtmlUrl ?? "", r.PushedAt))
+                var items = Parse<List<RepoDto>>(result.Body)!.Select(r => new RepositoryInfo(new RepoRef(r.Owner.Login, r.Name), r.Description, r.DefaultBranch ?? "main", r.Private, r.HtmlUrl ?? "", r.PushedAt, r.Owner.Type))
                     .Where(r => IsAllowed(r.Ref)).ToList();
                 yield return new RepositoryPage(items, page++, estimated, result.Next is null);
                 url = result.Next;
@@ -120,6 +120,30 @@ public sealed class GitHubCiProvider(
         return all.Take(max).ToList();
     }
 
+    /// <summary>
+    /// Runs created since <paramref name="since"/>, paged at 100. GitHub returns at most 1,000 results for a filtered listing, so a total at
+    /// or above that is reported as incomplete rather than presented as the whole period.
+    /// </summary>
+    public async Task<RunPeriod> ListRunsSinceAsync(RepoRef repo, DateTimeOffset since, int maxRuns, CancellationToken ct)
+    {
+        EnsureAllowed(repo);
+        var created = Uri.EscapeDataString(">=" + since.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture));
+        string? url = $"repos/{repo.Owner}/{repo.Name}/actions/runs?created={created}&per_page={PageSize}";
+        var all = new List<WorkflowRunInfo>(); int? total = null;
+        while (url is not null && all.Count < maxRuns)
+        {
+            var (body, next, _) = await GetPageAsync(url, ct, GitHubOperations.RunsList);
+            var env = Parse<RunsEnvelope>(body)!;
+            total ??= env.TotalCount;
+            all.AddRange(env.WorkflowRuns.Select(MapRun));
+            url = next;
+        }
+        var runs = all.Take(maxRuns).ToList();
+        return new RunPeriod(runs, total, url is null && (total is null || (runs.Count >= total && total < FilteredListingCap)));
+    }
+
+    private const int FilteredListingCap = 1000;
+
     public async Task<WorkflowRunInfo?> GetRunAsync(RepoRef repo, long runId, CancellationToken ct)
     {
         EnsureAllowed(repo);
@@ -131,19 +155,105 @@ public sealed class GitHubCiProvider(
         catch (CiProviderException ex) when (ex.StatusCode == 404) { return null; }
     }
 
-    public async Task<IReadOnlyList<JobInfo>> ListJobsAsync(RepoRef repo, long runId, CancellationToken ct)
+    public Task<IReadOnlyList<JobInfo>> ListJobsAsync(RepoRef repo, long runId, CancellationToken ct) => ListJobsCoreAsync(repo, runId, "latest", GitHubOperations.JobsList, ct);
+
+    /// <summary>Every attempt of the run: reruns consumed runner time too, and <c>filter=latest</c> would hide them.</summary>
+    public Task<IReadOnlyList<JobInfo>> ListJobAttemptsAsync(RepoRef repo, long runId, CancellationToken ct) => ListJobsCoreAsync(repo, runId, "all", GitHubOperations.JobAttemptsList, ct);
+
+    private async Task<IReadOnlyList<JobInfo>> ListJobsCoreAsync(RepoRef repo, long runId, string filter, string operation, CancellationToken ct)
     {
         EnsureAllowed(repo);
         var all = new List<JobInfo>();
-        string? url = $"repos/{repo.Owner}/{repo.Name}/actions/runs/{runId}/jobs?filter=latest&per_page={PageSize}";
+        string? url = $"repos/{repo.Owner}/{repo.Name}/actions/runs/{runId}/jobs?filter={filter}&per_page={PageSize}";
         while (url is not null)
         {
-            var (body, next, _) = await GetPageAsync(url, ct, GitHubOperations.JobsList);
+            var (body, next, _) = await GetPageAsync(url, ct, operation);
             all.AddRange(Parse<JobsEnvelope>(body)!.Jobs.Select(j => new JobInfo(j.Id, j.Name, MapState(j.Status, j.Conclusion), j.StartedAt, j.CompletedAt,
-                (j.Steps ?? []).Select(s => new StepInfo(s.Number, s.Name, MapState(s.Status, s.Conclusion))).ToList(), j.HtmlUrl ?? "")));
+                (j.Steps ?? []).Select(s => new StepInfo(s.Number, s.Name, MapState(s.Status, s.Conclusion))).ToList(), j.HtmlUrl ?? "",
+                j.Labels ?? [], j.RunnerName, j.RunnerGroupName, j.RunAttempt <= 0 ? 1 : j.RunAttempt, j.CreatedAt)));
             url = next;
         }
         return all;
+    }
+
+    // ------------------------------------------------------------------ runner insights (optional permissions)
+
+    /// <summary>
+    /// Repository variables merged over the organisation variables shared with the repository. Needs "Variables: Read"; without it the
+    /// result says so and the caller treats <c>vars.X</c> as unknown (not as unset).
+    /// </summary>
+    public async Task<ActionsVariables> GetActionsVariablesAsync(RepoRef repo, CancellationToken ct)
+    {
+        EnsureAllowed(repo);
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        try
+        {
+            // Organisation variables first so a repository variable of the same name wins, as it does at run time.
+            foreach (var path in new[] { "actions/organization-variables", "actions/variables" })
+            {
+                string? url = $"repos/{repo.Owner}/{repo.Name}/{path}?per_page=30";
+                for (var page = 0; url is not null && page < 5; page++)
+                {
+                    string body; string? next;
+                    try { (body, next, _) = await GetPageAsync(url, ct, GitHubOperations.VariablesList); }
+                    catch (CiProviderException ex) when (path.StartsWith("actions/organization") && ex.StatusCode is 403 or 404) { break; }   // org-level variables are best effort
+                    foreach (var v in Parse<VariablesEnvelope>(body)!.Variables ?? []) values[v.Name] = v.Value ?? "";
+                    url = next;
+                }
+            }
+            return new ActionsVariables(VariablesAccess.Available, values, null);
+        }
+        catch (CiProviderException ex) when (ex.StatusCode is 401 or 403 && !IsRateLimit(ex))
+            { return new ActionsVariables(VariablesAccess.PermissionMissing, values, "Reading Actions variables needs the fine-grained permission Variables: Read-only (repository and, for shared variables, organization)."); }
+        catch (CiProviderException ex) when (ex.StatusCode == 404)
+            { return new ActionsVariables(VariablesAccess.NotAvailable, values, "Actions variables are not visible to this token."); }
+        catch (CiProviderException ex)
+            { return new ActionsVariables(VariablesAccess.Failed, values, ex.Message); }
+    }
+
+    private static bool IsRateLimit(CiProviderException ex) => ex.StatusCode == 429 || ex.Message.Contains("rate limit", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// GitHub's enhanced-billing usage report for one account and month, reduced to the Actions product. The deprecated
+    /// <c>/settings/billing/actions</c> endpoint is deliberately not used. Never throws for a missing permission: that is a normal result.
+    /// </summary>
+    public async Task<BillingUsage> GetBillingUsageAsync(string owner, string? ownerType, int year, int month, CancellationToken ct)
+    {
+        var o = Uri.EscapeDataString(owner);
+        var query = $"?year={year}&month={month}";
+        var isUser = string.Equals(ownerType, "User", StringComparison.OrdinalIgnoreCase);
+        var org = $"organizations/{o}/settings/billing/usage{query}";
+        var user = $"users/{o}/settings/billing/usage{query}";
+        try
+        {
+            string body;
+            if (isUser) body = (await GetPageAsync(user, ct, GitHubOperations.BillingUsageGet)).Body;
+            else
+            {
+                try { body = (await GetPageAsync(org, ct, GitHubOperations.BillingUsageGet)).Body; }
+                catch (CiProviderException ex) when (ownerType is null && ex.StatusCode == 404) { body = (await GetPageAsync(user, ct, GitHubOperations.BillingUsageGet)).Body; }
+            }
+            var items = Parse<BillingEnvelope>(body)!.UsageItems ?? [];
+            var lines = items.Where(i => string.Equals(i.Product, "actions", StringComparison.OrdinalIgnoreCase))
+                .GroupBy(i => (Sku: i.Sku ?? "unknown", Unit: i.UnitType ?? ""))
+                .Select(g => new BillingLine(g.Key.Sku, g.Key.Unit, g.Sum(i => i.Quantity), g.Max(i => i.PricePerUnit), g.Sum(i => i.GrossAmount), g.Sum(i => i.DiscountAmount), g.Sum(i => i.NetAmount)))
+                .OrderBy(l => l.Sku, StringComparer.Ordinal).ToList();
+            return new BillingUsage(BillingAccess.Available, lines, null, year, month, DateTimeOffset.UtcNow);
+        }
+        catch (CiProviderException ex) when (ex.StatusCode is 401 or 403 && !IsRateLimit(ex))
+        {
+            var need = isUser ? "the fine-grained user permission Plan: Read-only" : "the fine-grained organization permission Administration: Read-only (and an organization owner or billing manager)";
+            return new BillingUsage(BillingAccess.PermissionMissing, [], $"Billing usage needs {need}. Usage is estimated from job history instead.", year, month, null);
+        }
+        catch (CiProviderException ex) when (ex.StatusCode is 404 or 410)
+            {
+            // For personal accounts GitHub answers 404 (not 403) when the token lacks the Plan permission or the account is someone else's.
+            var why = isUser ? "GitHub answers 404 for a personal account's billing unless the token has the user permission Plan: Read-only and the account is your own"
+                : "the account may not be on the enhanced billing platform, or is not visible to this token";
+            return new BillingUsage(BillingAccess.NotAvailable, [], $"No billing usage report for {owner}: {why}. Usage is estimated instead.", year, month, null);
+        }
+        catch (CiProviderException ex)
+            { return new BillingUsage(BillingAccess.Failed, [], ex.Message, year, month, null); }
     }
 
     // ------------------------------------------------------------------ logs & files
@@ -217,6 +327,12 @@ public sealed class GitHubCiProvider(
             catch (CiProviderException ex) { return new ConnectionCheck(name, CheckStatus.Failed, $"{ex.Message} {failHint}".Trim()); }
         }
 
+        async Task<ConnectionCheck> Optional(string name, Func<Task<(bool Ok, string Detail)>> op)
+        {
+            try { var (ok, detail) = await op(); return new ConnectionCheck(name, ok ? CheckStatus.Ok : CheckStatus.Skipped, detail); }
+            catch (CiProviderException ex) { return new ConnectionCheck(name, CheckStatus.Skipped, ex.Message); }
+        }
+
         checks.Add(await Run("Authentication", async () =>
         {
             var (body, _, _) = await GetPageAsync("user", ct, GitHubOperations.UserGet, useEtag: false);
@@ -247,6 +363,19 @@ public sealed class GitHubCiProvider(
                     if (await GetFileAsync(t, path, ct) is not null) return $"Read {path} from {t}.";
                 return $"Contents readable ({t} has no {GroupConfigContract.PreferredPath}, which is fine).";
             }, "Grant Contents: Read-only to read .github/ciworkbench.yml and workflow comments (grouping by YAML comment will be unavailable)."));
+
+            // Runner Insights works from Actions: Read alone. These two are optional extras and must never turn the connection unhealthy.
+            checks.Add(await Optional("Variables read (optional)", async () =>
+            {
+                var v = await GetActionsVariablesAsync(t, ct);
+                return v.IsAvailable ? (true, $"Read {v.Values.Count} Actions variables; configured runner labels can be resolved.") : (false, v.Reason ?? "Not available.");
+            }));
+            checks.Add(await Optional("Billing usage (optional)", async () =>
+            {
+                var now = DateTimeOffset.UtcNow;
+                var b = await GetBillingUsageAsync(t.Owner, null, now.Year, now.Month, ct);
+                return b.IsAvailable ? (true, $"GitHub billing usage is readable for {t.Owner}: verified usage will be shown.") : (false, b.Reason ?? "Not available.");
+            }));
         }
         return new ConnectionReport(account, checks);
     }
@@ -382,7 +511,7 @@ public sealed class GitHubCiProvider(
     internal static string StripRef(string? path) { if (string.IsNullOrEmpty(path)) return ""; var i = path.IndexOf('@'); return i < 0 ? path : path[..i]; }
 
     // DTOs (internal to this assembly; never exposed to components)
-    internal sealed record OwnerDto(string Login);
+    internal sealed record OwnerDto(string Login, string? Type = null);
     internal sealed record UserDto(string Login);
     internal sealed record RepoDto(string Name, OwnerDto Owner, string? Description, [property: JsonPropertyName("default_branch")] string? DefaultBranch, bool Private,
         [property: JsonPropertyName("html_url")] string? HtmlUrl, [property: JsonPropertyName("pushed_at")] DateTimeOffset? PushedAt);
@@ -394,10 +523,16 @@ public sealed class GitHubCiProvider(
         [property: JsonPropertyName("head_branch")] string? HeadBranch, [property: JsonPropertyName("head_sha")] string? HeadSha, [property: JsonPropertyName("head_commit")] CommitDto? HeadCommit,
         OwnerDto? Actor, [property: JsonPropertyName("created_at")] DateTimeOffset CreatedAt, [property: JsonPropertyName("run_started_at")] DateTimeOffset? RunStartedAt,
         [property: JsonPropertyName("updated_at")] DateTimeOffset? UpdatedAt, [property: JsonPropertyName("html_url")] string? HtmlUrl);
-    internal sealed record RunsEnvelope([property: JsonPropertyName("workflow_runs")] List<RunDto> WorkflowRuns);
+    internal sealed record RunsEnvelope([property: JsonPropertyName("workflow_runs")] List<RunDto> WorkflowRuns, [property: JsonPropertyName("total_count")] int? TotalCount = null);
     internal sealed record StepDto(int Number, string Name, string? Status, string? Conclusion);
     internal sealed record JobDto(long Id, string Name, string? Status, string? Conclusion, [property: JsonPropertyName("started_at")] DateTimeOffset? StartedAt,
-        [property: JsonPropertyName("completed_at")] DateTimeOffset? CompletedAt, List<StepDto>? Steps, [property: JsonPropertyName("html_url")] string? HtmlUrl);
+        [property: JsonPropertyName("completed_at")] DateTimeOffset? CompletedAt, List<StepDto>? Steps, [property: JsonPropertyName("html_url")] string? HtmlUrl,
+        List<string>? Labels = null, [property: JsonPropertyName("runner_name")] string? RunnerName = null, [property: JsonPropertyName("runner_group_name")] string? RunnerGroupName = null,
+        [property: JsonPropertyName("run_attempt")] int RunAttempt = 1, [property: JsonPropertyName("created_at")] DateTimeOffset? CreatedAt = null);
+    internal sealed record VariableDto(string Name, string? Value);
+    internal sealed record VariablesEnvelope(List<VariableDto>? Variables);
+    internal sealed record BillingItemDto(string? Product, string? Sku, double Quantity, string? UnitType, double PricePerUnit, double GrossAmount, double DiscountAmount, double NetAmount);
+    internal sealed record BillingEnvelope(List<BillingItemDto>? UsageItems);
     internal sealed record JobsEnvelope(List<JobDto> Jobs);
     internal sealed record RateCore(int Limit, int Remaining, long Reset);
     internal sealed record RateResources(RateCore Core);

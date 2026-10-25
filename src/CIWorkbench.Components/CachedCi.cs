@@ -81,7 +81,7 @@ public sealed class CachedCi(ICiProvider inner, TimeProvider time) : ICiProvider
     {
         lock (_gate)
         {
-            foreach (var k in _map.Keys.Where(k => k.Contains($"|runs|{repo}", StringComparison.Ordinal) || k.Contains($"|wfruns|{repo}", StringComparison.Ordinal) || k.Contains($"|run|{repo}", StringComparison.Ordinal)).ToList())
+            foreach (var k in _map.Keys.Where(k => k.Contains($"|runs|{repo}", StringComparison.Ordinal) || k.Contains($"|runs-since|{repo}", StringComparison.Ordinal) || k.Contains($"|wfruns|{repo}", StringComparison.Ordinal) || k.Contains($"|run|{repo}", StringComparison.Ordinal)).ToList())
                 _map.Remove(k);
         }
     }
@@ -99,6 +99,9 @@ public sealed class CachedCi(ICiProvider inner, TimeProvider time) : ICiProvider
     public Task<IReadOnlyList<WorkflowRunInfo>> ListRecentRunsAsync(RepoRef repo, int max, CancellationToken ct) =>
         GetOrAddAsync(Key("runs", repo, max), RunsTtl, () => inner.ListRecentRunsAsync(repo, max, CancellationToken.None), ct);
 
+    public Task<RunPeriod> ListRunsSinceAsync(RepoRef repo, DateTimeOffset since, int maxRuns, CancellationToken ct) =>
+        GetOrAddAsync(Key("runs-since", repo, since.ToUnixTimeSeconds(), maxRuns), RunsTtl, () => inner.ListRunsSinceAsync(repo, since, maxRuns, CancellationToken.None), ct);
+
     public Task<IReadOnlyList<WorkflowRunInfo>> ListWorkflowRunsAsync(RepoRef repo, long workflowId, int max, CancellationToken ct) =>
         GetOrAddAsync(Key("wfruns", repo, workflowId, max), RunsTtl, () => inner.ListWorkflowRunsAsync(repo, workflowId, max, CancellationToken.None), ct);
 
@@ -109,6 +112,24 @@ public sealed class CachedCi(ICiProvider inner, TimeProvider time) : ICiProvider
     public Task<IReadOnlyList<JobInfo>> ListJobsAsync(RepoRef repo, long runId, CancellationToken ct) =>
         GetOrAddAsync(Key("jobs", repo, runId), LiveTtl, () => inner.ListJobsAsync(repo, runId, CancellationToken.None), ct,
             jobs => jobs.Count > 0 && jobs.All(j => j.State.IsCompleted()) ? SettledTtl : LiveTtl);
+
+    public Task<IReadOnlyList<JobInfo>> ListJobAttemptsAsync(RepoRef repo, long runId, CancellationToken ct) =>
+        GetOrAddAsync(Key("jobs-all", repo, runId), LiveTtl, () => inner.ListJobAttemptsAsync(repo, runId, CancellationToken.None), ct,
+            jobs => jobs.Count > 0 && jobs.All(j => j.State.IsCompleted()) ? SettledTtl : LiveTtl);
+
+    public Task<ActionsVariables> GetActionsVariablesAsync(RepoRef repo, CancellationToken ct) =>
+        GetOrAddAsync(Key("vars", repo), ListTtl, () => inner.GetActionsVariablesAsync(repo, CancellationToken.None), ct);
+
+    /// <summary>Billing changes slowly and every owner costs a request: reuse it for the same account and month.</summary>
+    public Task<BillingUsage> GetBillingUsageAsync(string owner, string? ownerType, int year, int month, CancellationToken ct) =>
+        GetOrAddAsync(Key("billing", owner, ownerType ?? "", year, month), SettledTtl, () => inner.GetBillingUsageAsync(owner, ownerType, year, month, CancellationToken.None), ct);
+
+    /// <summary>Forgets cached billing and variables so a manual refresh in Settings reads them again.</summary>
+    public void InvalidateRunnerData()
+    {
+        lock (_gate)
+            foreach (var k in _map.Keys.Where(k => k.Contains("|billing|", StringComparison.Ordinal) || k.Contains("|vars|", StringComparison.Ordinal)).ToList()) _map.Remove(k);
+    }
 
     public Task<string?> GetJobLogTailAsync(RepoRef repo, long jobId, int maxBytes, CancellationToken ct) =>
         GetOrAddAsync(Key("log", repo, jobId, maxBytes), SettledTtl, () => inner.GetJobLogTailAsync(repo, jobId, maxBytes, CancellationToken.None), ct);

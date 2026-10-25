@@ -52,6 +52,8 @@ internal sealed class DashboardCallCounter(ICiProvider inner) : ICiProvider
     public Task<IReadOnlyList<WorkflowRunInfo>> ListWorkflowRunsAsync(RepoRef repo, long workflowId, int max, CancellationToken ct) => inner.ListWorkflowRunsAsync(repo, workflowId, max, ct);
     public Task<WorkflowRunInfo?> GetRunAsync(RepoRef repo, long runId, CancellationToken ct) => inner.GetRunAsync(repo, runId, ct);
     public Task<IReadOnlyList<JobInfo>> ListJobsAsync(RepoRef repo, long runId, CancellationToken ct) { Interlocked.Increment(ref Jobs); return inner.ListJobsAsync(repo, runId, ct); }
+    // Runner Insights measures with the all-attempts listing; it is a separate, budgeted feature and not part of the triage call budget counted here.
+    public Task<IReadOnlyList<JobInfo>> ListJobAttemptsAsync(RepoRef repo, long runId, CancellationToken ct) => inner.ListJobAttemptsAsync(repo, runId, ct);
     public Task<string?> GetJobLogTailAsync(RepoRef repo, long jobId, int maxBytes, CancellationToken ct) { Interlocked.Increment(ref Logs); return inner.GetJobLogTailAsync(repo, jobId, maxBytes, ct); }
     public Task<string?> GetFileAsync(RepoRef repo, string path, CancellationToken ct) => inner.GetFileAsync(repo, path, ct);
     public Task<RateLimitInfo?> GetRateLimitAsync(CancellationToken ct) => inner.GetRateLimitAsync(ct);
@@ -78,6 +80,8 @@ public abstract class DashboardContext : BunitContext
         Services.AddSingleton(new LiveModePolicy(blockedByExposure));
         Services.AddScoped<AppSession>();
         Services.AddScoped<OverviewData>();
+        Services.AddRunnerInsights(config);
+        Services.PostConfigure<CIWorkbench.Core.Runners.RunnerInsightsOptions>(o => o.DataDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ciw-tests", Guid.NewGuid().ToString("N")));   // tests never touch the real saved allowances
         Services.AddScoped<ICiProvider, SwitchableCiProvider>();
         JSInterop.Mode = JSRuntimeMode.Loose;
     }

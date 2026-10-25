@@ -380,9 +380,16 @@ public class ShellTests : BunitContext
         await Assert.That(cut.Find(".shell").GetAttribute("data-sidebar")).IsEqualTo("auto");
     }
 
+    /// <summary>
+    /// Navigates on the renderer's dispatcher. The layout reacts to LocationChanged by updating state synchronously but re-rendering through
+    /// InvokeAsync; navigating from the test thread and reading the markup straight away raced that render (about 1 run in 12).
+    /// </summary>
+    private Task Navigate<T>(IRenderedComponent<T> cut, string uri) where T : IComponent =>
+        cut.InvokeAsync(() => Services.GetRequiredService<NavigationManager>().NavigateTo(uri));
+
     private async Task<WorkflowRunInfo> SelectARun(IRenderedComponent<CIWorkbench.Web.Components.Layout.MainLayout> cut)
     {
-        Services.GetRequiredService<NavigationManager>().NavigateTo("repo/example-org/review-scraper-actor");
+        await Navigate(cut, "repo/example-org/review-scraper-actor");
         var run = (await new DemoCiProvider(new FixedClock(new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero))).ListRecentRunsAsync(DemoCiProvider.ActorRepo, 10, default)).First(r => r.State == RunState.Failure);
         await cut.InvokeAsync(() => Services.GetRequiredService<InspectorState>().Select(new RunSelection(DemoCiProvider.ActorRepo, run)));
         return run;
@@ -424,7 +431,7 @@ public class ShellTests : BunitContext
         var cut = Render<CIWorkbench.Web.Components.Layout.MainLayout>(p => p.Add(c => c.Body, (RenderFragment)(b => b.AddContent(0, "body"))));
         var run = await SelectARun(cut);
         await Assert.That(cut.Find(".shell").GetAttribute("data-inspector")).IsEqualTo("open");
-        Services.GetRequiredService<NavigationManager>().NavigateTo($"repo/example-org/review-scraper-actor/runs/{run.Id}");
+        await Navigate(cut, $"repo/example-org/review-scraper-actor/runs/{run.Id}");
         await Assert.That(cut.Find(".shell").GetAttribute("data-inspector")).IsEqualTo("closed");
         await Assert.That(Services.GetRequiredService<InspectorState>().Selection?.Run.Id).IsEqualTo(run.Id);
     }
@@ -435,21 +442,27 @@ public class ShellTests : BunitContext
         Arrange();
         var cut = Render<CIWorkbench.Web.Components.Layout.MainLayout>(p => p.Add(c => c.Body, (RenderFragment)(b => b.AddContent(0, "body"))));
         await cut.InvokeAsync(() => cut.Instance.OnViewport(true, false));
-        await Assert.That(cut.Find(".shell").GetAttribute("data-nav")).IsEqualTo("closed");
-        await Assert.That(cut.Find("[data-testid=sidebar-toggle]").GetAttribute("aria-expanded")).IsEqualTo("false");
+        // The toggles' handlers await JS interop, so their re-render can land after Click() returns: wait for the state instead of sampling the DOM once.
+        void Expect(string selector, string attribute, string expected) => cut.WaitForAssertion(() =>
+        {
+            var actual = cut.Find(selector).GetAttribute(attribute);
+            if (actual != expected) throw new InvalidOperationException($"{selector} [{attribute}] is '{actual}', expected '{expected}'.");
+        });
+        Expect(".shell", "data-nav", "closed");
+        Expect("[data-testid=sidebar-toggle]", "aria-expanded", "false");
         cut.Find("[data-testid=sidebar-toggle]").Click();
-        await Assert.That(cut.Find(".shell").GetAttribute("data-nav")).IsEqualTo("open");
-        await Assert.That(cut.Find("[data-testid=sidebar-toggle]").GetAttribute("aria-expanded")).IsEqualTo("true");
-        await Assert.That(cut.FindAll("[data-testid=scrim]")).IsNotEmpty();
+        Expect(".shell", "data-nav", "open");
+        Expect("[data-testid=sidebar-toggle]", "aria-expanded", "true");
+        cut.WaitForAssertion(() => { if (cut.FindAll("[data-testid=scrim]").Count == 0) throw new InvalidOperationException("scrim missing"); });
         cut.Find("[data-testid=more-toggle]").Click();                                       // opening the actions menu closes the drawer
-        await Assert.That(cut.Find(".shell").GetAttribute("data-more")).IsEqualTo("open");
-        await Assert.That(cut.Find(".shell").GetAttribute("data-nav")).IsEqualTo("closed");
+        Expect(".shell", "data-more", "open");
+        Expect(".shell", "data-nav", "closed");
         await cut.InvokeAsync(() => cut.Instance.OnEscape());
-        await Assert.That(cut.Find(".shell").GetAttribute("data-more")).IsEqualTo("closed");
+        Expect(".shell", "data-more", "closed");
         cut.Find("[data-testid=sidebar-toggle]").Click();
-        await Assert.That(cut.Find(".shell").GetAttribute("data-nav")).IsEqualTo("open");
-        Services.GetRequiredService<NavigationManager>().NavigateTo("settings");             // following a link closes the drawer
-        await Assert.That(cut.Find(".shell").GetAttribute("data-nav")).IsEqualTo("closed");
+        Expect(".shell", "data-nav", "open");
+        await Navigate(cut, "settings");                                                       // following a link closes the drawer
+        Expect(".shell", "data-nav", "closed");
     }
 
     [Test]

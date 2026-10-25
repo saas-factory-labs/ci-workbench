@@ -18,6 +18,24 @@ public interface ICiProvider
     /// <summary>One run by id (deep links), or null when it does not exist or is not visible.</summary>
     Task<WorkflowRunInfo?> GetRunAsync(RepoRef repo, long runId, CancellationToken ct);
     Task<IReadOnlyList<JobInfo>> ListJobsAsync(RepoRef repo, long runId, CancellationToken ct);
+    /// <summary>
+    /// Jobs of every attempt of a run (rerun attempts were billed too; <see cref="ListJobsAsync"/> only returns the latest). Deduplicate by <see cref="JobInfo.Id"/>.
+    /// Providers that cannot tell fall back to the latest attempt.
+    /// </summary>
+    Task<IReadOnlyList<JobInfo>> ListJobAttemptsAsync(RepoRef repo, long runId, CancellationToken ct) => ListJobsAsync(repo, runId, ct);
+    /// <summary>
+    /// Runs created since <paramref name="since"/> (up to <paramref name="maxRuns"/>), paged. The result says whether it is the complete set
+    /// (GitHub caps filtered run listings at 1,000 results). Providers that cannot filter by date fall back to their recent-runs window.
+    /// </summary>
+    async Task<RunPeriod> ListRunsSinceAsync(RepoRef repo, DateTimeOffset since, int maxRuns, CancellationToken ct)
+    {
+        var runs = await ListRecentRunsAsync(repo, maxRuns, ct);
+        return new RunPeriod(runs.Where(r => r.CreatedAt >= since).ToList(), null, runs.Count < maxRuns || runs.Any(r => r.CreatedAt < since));
+    }
+    /// <summary>Actions variables visible for a repository (repository plus shared organisation variables). Optional permission: a refusal is a result, not an exception.</summary>
+    Task<ActionsVariables> GetActionsVariablesAsync(RepoRef repo, CancellationToken ct) => Task.FromResult(ActionsVariables.Unsupported);
+    /// <summary>Official GitHub billing usage of one account for one calendar month. Optional permission: a refusal is a result, not an exception.</summary>
+    Task<BillingUsage> GetBillingUsageAsync(string owner, string? ownerType, int year, int month, CancellationToken ct) => Task.FromResult(BillingUsage.Unsupported);
     /// <summary>Last <paramref name="maxBytes"/> of a job log, or null when unavailable.</summary>
     Task<string?> GetJobLogTailAsync(RepoRef repo, long jobId, int maxBytes, CancellationToken ct);
     /// <summary>Raw file content at the default branch, or null if the file does not exist.</summary>

@@ -400,6 +400,9 @@ public class StatePreservationTests : BunitContext
         Services.AddCIWorkbenchComponents();
         Services.AddScoped<DemoCiProvider>(sp => new DemoCiProvider(clock));
         Services.AddScoped<AppSession>();
+        Services.AddScoped<OverviewData>();
+        Services.AddRunnerInsights(config);
+        Services.PostConfigure<CIWorkbench.Core.Runners.RunnerInsightsOptions>(o => o.DataDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ciw-tests", Guid.NewGuid().ToString("N")));   // tests never touch the real saved allowances
         Services.AddScoped<ICiProvider, SwitchableCiProvider>();
         JSInterop.Mode = JSRuntimeMode.Loose;
     }
