@@ -2,6 +2,21 @@
 
 Thanks for helping! You need the .NET 10 SDK and nothing else. No private feeds or credentials are required to build; `NuGet.config` clears all sources except nuget.org.
 
+## Licensing and contributions
+
+CIWorkbench Community is **source-available under the Apache License 2.0 terms with the Commons Clause v1.0 condition**, not OSI-approved open source. Review [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md) before contributing. Internal development and use are permitted; selling the software or a product/service whose value derives entirely or substantially from it is restricted by the full clause. Past Apache-only releases retain their existing grants.
+
+### Contributor rights and CLA
+
+Contributors retain copyright in their own work. Because CIWorkbench Community and separately licensed CIWorkbench Pro may share eligible code, contributions intended for inclusion require the **separate Contributor License Agreement** in [CLA.md](CLA.md), which grants the project maintainer permission to relicense contributions, including in commercial editions, without requiring copyright assignment.
+
+- Review `CLA.md` before submitting code; raise questions before agreeing.
+- The PR template asks for explicit acknowledgement of the CLA. Maintainers must **manually verify and record acceptance**; a checked box alone is not an automatically implemented e-signature or a CLA bot.
+- Do not merge a third-party contribution until ownership and the necessary permissions/acceptance are confirmed.
+- Do not submit employer-owned code without authorization, or third-party code unless its license is compatible and its provenance documented.
+- A CLA is **not** required merely to open issues, give feedback or test the app.
+- The final CLA and licensor's legal identity should receive legal review before broad external contribution intake.
+
 ## Workflow
 
 1. Fork, create a branch, make a focused change.
