@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Supplied by scripts/verify-packages.sh: the version just packed. No default, so a stale package can never satisfy it. -->
+    <CIWorkbenchPackageVersion Condition="'$(CIWorkbenchPackageVersion)' == ''">0.0.0-unset</CIWorkbenchPackageVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Only the Components package is referenced: Core and GitHub must arrive transitively. -->
+    <PackageReference Include="SaaS-Factory.CIWorkbench.Components" Version="$(CIWorkbenchPackageVersion)" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,20 @@
+<Project>
+  <!-- Shared by the three published libraries (Core, GitHub, Components). Imported from each csproj. -->
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <Version>$(CIWorkbenchVersion)</Version>
+    <Authors>Casper Rubæk</Authors>
+    <Company>SaaS Factory Labs</Company>
+    <PackageProjectUrl>https://github.com/saas-factory-labs/ci-workbench</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/saas-factory-labs/ci-workbench</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <!-- The licence is a file, not an SPDX expression, so it travels with the package unchanged. -->
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>ci;github-actions;blazor;razor-components;workflow</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)..\LICENSE" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\packages\README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+</Project>

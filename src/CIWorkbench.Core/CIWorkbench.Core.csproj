@@ -1,4 +1,9 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\Packaging.props" />
+  <PropertyGroup>
+    <PackageId>SaaS-Factory.CIWorkbench.Core</PackageId>
+    <Description>CI Workbench core: provider-neutral CI models, failure detection and series analysis, health, overview and runner-usage logic. No UI and no GitHub dependency.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="YamlDotNet" />
   </ItemGroup>

@@ -1,0 +1,3 @@
+<Project>
+  <!-- Deliberately empty: this project stands in for an external host and must not inherit the repository's build settings. -->
+</Project>
