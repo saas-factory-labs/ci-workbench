@@ -1,7 +1,7 @@
 using System.Globalization;
 using CIWorkbench.Core.Runners;
 
-namespace CIWorkbench.Web;
+namespace CIWorkbench.Components;
 
 /// <summary>Display rules for Runner Insights. Every amount carries its unit; amounts of different units are never combined.</summary>
 public static class RunnerFmt

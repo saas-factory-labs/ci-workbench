@@ -1,30 +1,8 @@
 @page "/repo/{Owner}/{Name}/runs/{RunId:long}"
 @page "/repos/{Owner}/{Name}/runs/{RunId:long}"
-@implements IDisposable
-@inject AppSession Session
-@inject InspectorState Inspector
-@inject WorkspaceSignals Signals
-
-<PageTitle>Run @RunId · @Owner/@Name · CIWorkbench</PageTitle>
-
-<RunDetails Repo="_repo" RunId="RunId" FocusJob="Job" />
-
+<RunView Owner="@Owner" Name="@Name" RunId="RunId" />
 @code {
     [Parameter] public string Owner { get; set; } = "";
     [Parameter] public string Name { get; set; } = "";
     [Parameter] public long RunId { get; set; }
-    [SupplyParameterFromQuery(Name = "job")] public string? Job { get; set; }
-
-    private RepoRef _repo;
-
-    protected override void OnInitialized() => Session.Changed += OnChanged;
-    private void OnChanged() => InvokeAsync(StateHasChanged);
-
-    protected override void OnParametersSet()
-    {
-        _repo = new RepoRef(Owner, Name);
-        if (!Session.Selected.Equals(_repo)) { Inspector.Clear(); Signals.SetSearch(null); Session.Select(_repo); }
-    }
-
-    public void Dispose() => Session.Changed -= OnChanged;
 }

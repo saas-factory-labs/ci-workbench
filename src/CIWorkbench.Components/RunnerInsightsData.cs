@@ -6,9 +6,11 @@ using CIWorkbench.Core.Models;
 using CIWorkbench.Core.Overview;
 using CIWorkbench.Core.Runners;
 using CIWorkbench.GitHub;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
-namespace CIWorkbench.Web;
+namespace CIWorkbench.Components;
 
 /// <summary>
 /// Process-wide memory of finished jobs. A completed run's jobs never change, so they are fetched once and reused across circuits and page loads.
@@ -31,11 +33,13 @@ public sealed class RunnerJobStore
     }
 
     /// <summary>Partition key. The token itself is only hashed, in memory, and never leaves the process.</summary>
-    public static string ContextOf(DataMode mode, GitHubOptions github)
+    public static string ContextOf(DataMode mode, GitHubOptions github, string? credentialIdentity = null)
     {
         if (mode == DataMode.Demo) return "demo";
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(github.ApiBaseUrl + "\n" + github.Token)))[..12];
-        return $"live|{fingerprint}|{string.Join(',', github.AllowedRepositories.Order(StringComparer.OrdinalIgnoreCase))}";
+        // A host-supplied credential source has no token in GitHubOptions; its identity keeps its data apart instead.
+        var identity = credentialIdentity is null or "pat" ? "" : "|" + credentialIdentity;
+        return $"live|{fingerprint}|{string.Join(',', github.AllowedRepositories.Order(StringComparer.OrdinalIgnoreCase))}{identity}";
     }
 }
 
@@ -89,7 +93,7 @@ public sealed record PlanRow(string Key, RunnerProviderDef Provider, string? Poo
 /// </summary>
 public sealed class RunnerInsightsData(
     AppSession session, OverviewData overview, CachedCi ci, RunnerJobStore store, RunnerPlanStore plans,
-    IOptions<RunnerInsightsOptions> configured, IOptions<GitHubOptions> github, TimeProvider time) : IDisposable
+    IOptions<RunnerInsightsOptions> configured, IOptions<GitHubOptions> github, IGitHubCredentialSource credentials, TimeProvider time) : IDisposable
 {
     private sealed class Budget(int n)
     {
@@ -128,7 +132,7 @@ public sealed class RunnerInsightsData(
     /// <summary>Settings may edit allowances only for a source that has an identity to keep them under.</summary>
     public bool CanEditPlans => session.Mode == DataMode.Demo || session.LiveAvailable;
 
-    private string Context => RunnerJobStore.ContextOf(session.Mode, github.Value);
+    private string Context => RunnerJobStore.ContextOf(session.Mode, github.Value, credentials.Identity);
     private static string KeyOf(string ctx, RepoRef repo, WorkflowRunInfo run) => $"{ctx}|{repo}|{run.Id}|{run.Attempt}";
 
     private Engine EngineOf()

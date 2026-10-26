@@ -2,7 +2,7 @@ using CIWorkbench.Components;
 using CIWorkbench.Core.Models;
 using CIWorkbench.Core.Overview;
 
-namespace CIWorkbench.Web;
+namespace CIWorkbench.Components;
 
 /// <summary>Where a repository stands in the dashboard's scan. A repository without an entry has not been checked and is never treated as healthy.</summary>
 public enum ScanState { NotChecked, Loading, Loaded, Failed }

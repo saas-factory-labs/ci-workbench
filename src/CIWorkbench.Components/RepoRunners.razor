@@ -41,7 +41,7 @@
         @if (partial && v.Coverage.RunsEligible > 0) { <progress class="ru-collect" max="@v.Coverage.RunsEligible" value="@v.Coverage.RunsMeasured" aria-label="Collection progress"></progress> }
         <p class="ru-fine ciw-muted" data-testid="rr-shared">
             <span class="pill est" title="@RunnerFmt.QualityTitle(DataQuality.Estimated)">Estimated</span> from this repository's finished jobs. Allowances and billing are shared by the whole @(v.Repo.Owner) account (or provider account), not by this repository:
-            <a href="overview">Overview</a> · <a href="settings#runner-insights">Settings</a>.
+            <a href="@Routes.Overview">Overview</a>@if (Routes.HasSettings) { <text> · <a href="@Routes.RunnerSettings">Settings</a></text> }.
             @if (!v.IsPrivate) { <span> Public repository: GitHub's standard runners are free here.</span> }
         </p>
 

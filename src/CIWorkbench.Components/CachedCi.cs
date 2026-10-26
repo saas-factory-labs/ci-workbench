@@ -152,4 +152,9 @@ public class CiwRoutes
     public virtual string Workflow(RepoRef r, long workflowId, string? tab = null) => $"{Repository(r)}/workflows/{workflowId}" + (string.IsNullOrEmpty(tab) ? "" : $"?tab={tab}");
     public virtual string Run(RepoRef r, long runId) => $"{Repository(r)}/runs/{runId}";
     public virtual string Repositories => "repositories";
+    public virtual string Overview => "overview";
+    public virtual string Settings => "settings";
+    public virtual string RunnerSettings => "settings#runner-insights";
+    /// <summary>False when the host has no settings pages; the components then omit their links to them.</summary>
+    public virtual bool HasSettings => true;
 }

@@ -1,4 +1,6 @@
+using CIWorkbench.Core.Demo;
 using CIWorkbench.Core.Models;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -124,6 +126,23 @@ public static class CIWorkbenchComponentsExtensions
         services.TryAddScoped<WorkspaceSignals>();
         services.TryAddScoped(sp => new CachedCi(sp.GetRequiredService<ICiProvider>(), sp.GetRequiredService<TimeProvider>()));
         services.TryAddSingleton<CiwRoutes>();
+        return services;
+    }
+
+    /// <summary>
+    /// Everything an embedding host needs for the workspace components (Overview, repository, workflow and run views, Runner Usage), on top of
+    /// <see cref="AddCIWorkbenchComponents"/>. Requires <c>AddCIWorkbenchGitHub</c>. Registers a scoped <see cref="ICiProvider"/> that
+    /// follows the session's data source: live GitHub when a credential is configured (set <c>CIWorkbench:Mode</c> to <c>live</c>), otherwise demo data.
+    /// The standalone host registers the same services.
+    /// </summary>
+    public static IServiceCollection AddCIWorkbenchWorkspace(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddCIWorkbenchComponents();
+        services.TryAddScoped<DemoCiProvider>(sp => new DemoCiProvider(sp.GetRequiredService<TimeProvider>()));
+        services.TryAddScoped<AppSession>();
+        services.TryAddScoped<OverviewData>();
+        services.AddRunnerInsights(configuration);
+        services.TryAddScoped<ICiProvider, SwitchableCiProvider>();
         return services;
     }
 }

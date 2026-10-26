@@ -78,7 +78,7 @@
         </div>
         @if (RunnerFmt.Excluded(Report.Excluded) is { Length: > 0 } ex) { <p class="ru-fine ciw-muted">Not counted: @ex.</p> }
     }
-    <p class="ru-more"><a href="settings#runner-insights" data-testid="ru-details-link">Allowances, billing status and data collection →</a></p>
+    @if (Routes.HasSettings) { <p class="ru-more"><a href="@Routes.RunnerSettings" data-testid="ru-details-link">Allowances, billing status and data collection →</a></p> }
 </section>
 
 @code {
