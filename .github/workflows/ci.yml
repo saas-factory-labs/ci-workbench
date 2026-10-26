@@ -21,3 +21,17 @@ jobs:
       - run: dotnet test --project tests/CIWorkbench.GitHub.Tests --configuration Release --no-build
       - run: dotnet test --project tests/CIWorkbench.Web.Tests --configuration Release --no-build
 
+
+  # Packs Core, GitHub and Components, inspects the nupkgs and restores them from a clean cache into a minimal external host.
+  packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9  # v4.3.1
+        with:
+          global-json-file: global.json
+      - run: scripts/verify-packages.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: nupkgs
+          path: artifacts/nupkgs/*.nupkg

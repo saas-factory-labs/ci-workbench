@@ -27,8 +27,8 @@ if (DateTimeOffset.TryParse(builder.Configuration["CIWORKBENCH_DEMO_NOW"], Syste
     builder.Services.AddSingleton<TimeProvider>(new PinnedClock(pinnedNow));
 
 // Reusable UI state + the read-only GitHub provider. The token (GitHub:Token) is read server-side only.
-builder.Services.AddCIWorkbenchComponents();
 builder.Services.AddCIWorkbenchGitHub(builder.Configuration);
+builder.Services.AddCIWorkbenchWorkspace(builder.Configuration);
 
 // ---- Telemetry hardening ------------------------------------------------------------------------------------------------
 // Export the GitHub integration's own meter and spans (bounded labels only; see CiWorkbenchTelemetry).
@@ -54,12 +54,7 @@ if (remoteReachable)
     builder.Services.PostConfigure<GitHubOptions>(o => o.Token = null);
     Console.WriteLine("CIWorkbench: listening beyond loopback, so Live GitHub mode is disabled and only demo data is served.");
 }
-builder.Services.AddScoped<DemoCiProvider>(sp => new DemoCiProvider(sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton(new LiveModePolicy(remoteReachable));
-builder.Services.AddScoped<AppSession>();
-builder.Services.AddScoped<OverviewData>();
-builder.Services.AddRunnerInsights(builder.Configuration);
-builder.Services.AddScoped<ICiProvider, SwitchableCiProvider>();
 
 var app = builder.Build();
 

@@ -1,0 +1,43 @@
+@implements IDisposable
+@inject AppSession Session
+@inject InspectorState Inspector
+@inject NavigationManager Nav
+@inject WorkspaceSignals Signals
+
+<PageTitle>Workflow · @Owner/@Name · CIWorkbench</PageTitle>
+
+<WorkflowDetails Repo="_repo" WorkflowId="WorkflowId" ShowSearch="false" DefaultBranch="@Info?.DefaultBranch" Query="_query" OnQueryChanged="OnQueryChanged" />
+
+@code {
+    [Parameter] public string Owner { get; set; } = "";
+    [Parameter] public string Name { get; set; } = "";
+    [Parameter] public long WorkflowId { get; set; }
+    [SupplyParameterFromQuery(Name = "tab")] public string? Tab { get; set; }
+    [SupplyParameterFromQuery(Name = "status")] public string? Status { get; set; }
+    [SupplyParameterFromQuery(Name = "branch")] public string? Branch { get; set; }
+    [SupplyParameterFromQuery(Name = "event")] public string? Event { get; set; }
+
+    private RepoRef _repo;
+    private WorkflowDetailsQuery _query = WorkflowDetailsQuery.Empty;
+    private RepositoryInfo? Info => Session.Repositories.FirstOrDefault(r => r.Ref.Equals(_repo));
+
+    protected override void OnInitialized() => Session.Changed += OnChanged;
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    protected override void OnParametersSet()
+    {
+        _repo = new RepoRef(Owner, Name);
+        // Only a genuine change of repository resets search and the inspector; coming back from a detail page keeps both.
+        if (!Session.Selected.Equals(_repo)) { Inspector.Clear(); Signals.SetSearch(null); Session.Select(_repo); }
+        var next = new WorkflowDetailsQuery(Tab, null, Status, Branch, Event);
+        if (next != _query) _query = next;
+    }
+
+    private void OnQueryChanged(WorkflowDetailsQuery q)
+    {
+        var uri = Nav.GetUriWithQueryParameters(new Dictionary<string, object?> { ["tab"] = q.Tab, ["status"] = q.Status, ["branch"] = q.Branch, ["event"] = q.Event });
+        Nav.NavigateTo(uri, new NavigationOptions { ReplaceHistoryEntry = true });
+    }
+
+    public void Dispose() => Session.Changed -= OnChanged;
+}

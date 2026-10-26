@@ -3,9 +3,10 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CIWorkbench.Core.Runners;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace CIWorkbench.Web;
+namespace CIWorkbench.Components;
 
 public enum PlanSource { None, Saved, Server }
 

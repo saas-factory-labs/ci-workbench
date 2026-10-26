@@ -2,6 +2,9 @@ using System.Net;
 
 namespace CIWorkbench.Web;
 
+/// <summary>Why live mode can never work on this host, regardless of the token (set once at startup).</summary>
+public sealed record LiveModePolicy(bool BlockedByNetworkExposure);
+
 /// <summary>
 /// The standalone host is single-user and authenticates nothing, so a configured GitHub token must never be reachable from another machine.
 /// When any configured listen address is not loopback, the token is dropped at startup and only demo data is served.

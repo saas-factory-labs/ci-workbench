@@ -1,16 +1,13 @@
 using CIWorkbench.Core.Demo;
 using CIWorkbench.Core.Models;
 using CIWorkbench.GitHub;
-using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Configuration;
 
-namespace CIWorkbench.Web;
+namespace CIWorkbench.Components;
 
 public enum DataMode { Demo, Live }
 
 public enum DiscoveryState { Idle, Running, Completed, Cancelled, Failed }
-
-/// <summary>Why live mode can never work on this host, regardless of the token (set once at startup).</summary>
-public sealed record LiveModePolicy(bool BlockedByNetworkExposure);
 
 /// <summary>
 /// Per-circuit state of the standalone host: data mode, progressive repository discovery, selected repository.
@@ -18,7 +15,7 @@ public sealed record LiveModePolicy(bool BlockedByNetworkExposure);
 /// </summary>
 public sealed class AppSession : IDisposable
 {
-    private readonly IOptions<GitHubOptions> _github;
+    private readonly IGitHubCredentialSource _credentials;
     private readonly DemoCiProvider _demo;
     private readonly GitHubCiProvider _live;
     private readonly List<RepositoryInfo> _repos = [];
@@ -26,9 +23,9 @@ public sealed class AppSession : IDisposable
     private CancellationTokenSource? _cts;
     private int _generation;
 
-    public AppSession(IOptions<GitHubOptions> github, DemoCiProvider demo, GitHubCiProvider live, RateLimitTracker tracker, IConfiguration config)
+    public AppSession(IGitHubCredentialSource credentials, DemoCiProvider demo, GitHubCiProvider live, RateLimitTracker tracker, IConfiguration config)
     {
-        _github = github; _demo = demo; _live = live; Tracker = tracker;
+        _credentials = credentials; _demo = demo; _live = live; Tracker = tracker;
         var requested = config["CIWORKBENCH_MODE"] ?? config["CIWorkbench:Mode"];
         Mode = string.Equals(requested, "live", StringComparison.OrdinalIgnoreCase) && LiveAvailable ? DataMode.Live : DataMode.Demo;
     }
@@ -37,7 +34,7 @@ public sealed class AppSession : IDisposable
     public RateLimitTracker Tracker { get; }
 
     public DataMode Mode { get; private set; }
-    public bool LiveAvailable => _github.Value.HasToken;
+    public bool LiveAvailable => _credentials.IsConfigured;
     public ICiProvider Provider => Mode == DataMode.Live ? _live : _demo;
 
     public IReadOnlyList<RepositoryInfo> Repositories => _repos;

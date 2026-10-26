@@ -1,0 +1,3 @@
+<Project>
+  <!-- Deliberately empty: stops the repository's central package management from applying to the consumer. -->
+</Project>

@@ -1,0 +1,41 @@
+name: Release packages
+
+# Manual, approval-gated publish of SaaS-Factory.CIWorkbench.{Core,GitHub,Components} to GitHub Packages.
+# Nothing runs on push or tag. The `nuget-release` environment must be created in the repository settings with required
+# reviewers; the job waits there until a person approves it. Versions are immutable: --skip-duplicate makes a re-run a no-op.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_version:
+        description: "Type the CIWorkbenchVersion from Directory.Build.props to confirm what you are releasing"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: nuget-release
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9  # v4.3.1
+        with:
+          global-json-file: global.json
+      - name: Check the confirmed version
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's#.*<CIWorkbenchVersion>\(.*\)</CIWorkbenchVersion>.*#\1#p' Directory.Build.props)"
+          [ "$version" = "${{ inputs.confirm_version }}" ] || { echo "Directory.Build.props says $version"; exit 1; }
+      - run: scripts/verify-packages.sh
+      - name: Push to GitHub Packages
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          dotnet nuget push "artifacts/nupkgs/*.nupkg" --skip-duplicate \
+            --source "https://nuget.pkg.github.com/saas-factory-labs/index.json" --api-key "$NUGET_AUTH_TOKEN"

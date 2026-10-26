@@ -1,4 +1,9 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\Packaging.props" />
+  <PropertyGroup>
+    <PackageId>SaaS-Factory.CIWorkbench.GitHub</PackageId>
+    <Description>Read-only GitHub Actions provider for CI Workbench: IGitHubCredentialSource, GitHubCiProvider, rate-limit handling and telemetry hardening.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <InternalsVisibleTo Include="CIWorkbench.GitHub.Tests" />

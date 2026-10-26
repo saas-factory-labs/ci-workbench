@@ -372,9 +372,10 @@ public class OverviewPageTests : DashboardContext
     [Test]
     public async Task Narrow_screens_get_their_own_layout_rules_for_the_dashboard()
     {
-        var css = Css.Host;
+        var css = Css.Components;                                    // the dashboard styles ship with the Components package
         var phone = css[css.IndexOf("@media (max-width: 760px)", css.IndexOf(".ov-cards", StringComparison.Ordinal), StringComparison.Ordinal)..];
-        foreach (var rule in new[] { ".ov-cards", ".ov-row", ".ov-detail", ".ov-repo-row", ".ob-perms" }) await Assert.That(phone).Contains(rule);
+        foreach (var rule in new[] { ".ov-cards", ".ov-row", ".ov-detail", ".ov-repo-row" }) await Assert.That(phone).Contains(rule);
+        await Assert.That(Css.Host).Contains(".ob-perms");           // onboarding is standalone-host only
         await Assert.That(css).Contains("[data-label]::before");        // table headings become inline labels on a phone
     }
 }

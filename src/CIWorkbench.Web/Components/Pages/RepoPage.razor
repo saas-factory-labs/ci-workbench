@@ -1,75 +1,7 @@
 @page "/repo/{Owner}/{Name}"
 @page "/repo/{Owner}/{Name}/failures"
-@implements IDisposable
-@inject AppSession Session
-@inject InspectorState Inspector
-@inject NavigationManager Nav
-@inject WorkspaceSignals Signals
-
-<PageTitle>@Owner/@Name · CIWorkbench</PageTitle>
-<h1 class="sr-only">@Owner/@Name @(IsFailures ? "failure series" : "workflows")</h1>
-
-@if (NotInSource)
-{
-    <div class="ciw-notice warn" role="status" data-testid="not-in-source">@Owner/@Name is not part of the @(Session.Mode == DataMode.Demo ? "demo data" : "live GitHub data"). <a href="overview">Back to Overview</a></div>
-}
-
-<RepositoryWorkspace Repo="_repo" SourceKey="Session.SourceVersion" ShowSearch="false" View="@(IsFailures ? WorkspaceView.Failures : WorkspaceView.Groups)"
-                     Description="@Info?.Description" DefaultBranch="@Info?.DefaultBranch"
-                     SelectedRunId="Inspector.Selection?.Run.Id" MaxRuns="@(Session.Mode == DataMode.Demo ? 250 : 100)"
-                     OnRunSelected="Inspector.Select" OnViewFailures="GoFailures">
-    <HeaderActions>
-        @if (SafeHttps(Info?.HtmlUrl) is { } url)
-        {
-            <a class="ciw-btn" href="@url" target="_blank" rel="noopener noreferrer"><Icon Name="github" Size="17" /> View on GitHub</a>
-        }
-        else if (Session.Mode == DataMode.Demo)
-        {
-            <span class="ciw-btn disabled" aria-disabled="true" title="Demo data: this repository does not exist on GitHub."><Icon Name="github" Size="17" /> View on GitHub</span>
-        }
-    </HeaderActions>
-</RepositoryWorkspace>
-
-<RepoRunners Repo="_repo" />
-
+<RepositoryView Owner="@Owner" Name="@Name" />
 @code {
     [Parameter] public string Owner { get; set; } = "";
     [Parameter] public string Name { get; set; } = "";
-
-    private RepoRef _repo;
-    private bool IsFailures => Nav.Uri.TrimEnd('/').EndsWith("/failures", StringComparison.OrdinalIgnoreCase);
-    private RepositoryInfo? Info => Session.Repositories.FirstOrDefault(r => r.Ref.Equals(_repo));
-
-    private int _seenSource;
-    private bool _switched;
-
-    /// <summary>The data source was switched while this page was open and the new source does not list this repository.</summary>
-    private bool NotInSource => _switched && Session.Discovery == DiscoveryState.Completed && Info is null;
-
-    protected override void OnInitialized() { _seenSource = Session.SourceVersion; Session.Changed += OnChanged; }
-
-    // A demo/live switch clears the selection and the discovered repositories. Re-establish this page's repository and let the workspace
-    // reload from the new source, instead of waiting for the user to navigate away and back.
-    private void OnChanged() => InvokeAsync(() =>
-    {
-        if (Session.SourceVersion != _seenSource)
-        {
-            _seenSource = Session.SourceVersion; _switched = true;
-            Inspector.Clear(); Signals.SetSearch(null);
-            Session.Select(_repo);
-        }
-        StateHasChanged();
-    });
-
-    protected override void OnParametersSet()
-    {
-        var next = new RepoRef(Owner, Name);
-        _repo = next;
-        // Only a genuine change of repository resets search and the inspector; coming back from a detail page keeps both.
-        if (!Session.Selected.Equals(next)) { Inspector.Clear(); Signals.SetSearch(null); Session.Select(next); }
-    }
-
-    private void GoFailures() => Nav.NavigateTo($"repo/{Owner}/{Name}/failures");
-    private static string? SafeHttps(string? u) => Uri.TryCreate(u, UriKind.Absolute, out var x) && x.Scheme == Uri.UriSchemeHttps && !x.Host.EndsWith(".invalid") ? x.ToString() : null;
-    public void Dispose() => Session.Changed -= OnChanged;
 }

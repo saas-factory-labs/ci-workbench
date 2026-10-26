@@ -1,7 +1,14 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <Import Project="..\Packaging.props" />
+  <PropertyGroup>
+    <PackageId>SaaS-Factory.CIWorkbench.Components</PackageId>
+    <Description>Reusable Blazor components for CI Workbench (workspace, run inspector, failure series, Runner Usage) with the Community design tokens, CSS and JavaScript as static web assets.</Description>
+    <StaticWebAssetBasePath>_content/CIWorkbench.Components</StaticWebAssetBasePath>
+  </PropertyGroup>
   <ItemGroup>
     <SupportedPlatform Include="browser" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\CIWorkbench.Core\CIWorkbench.Core.csproj" />
+    <ProjectReference Include="..\CIWorkbench.GitHub\CIWorkbench.GitHub.csproj" />
   </ItemGroup>
 </Project>

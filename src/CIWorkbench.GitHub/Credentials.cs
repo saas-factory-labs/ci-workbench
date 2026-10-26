@@ -1,4 +1,4 @@
-﻿namespace CIWorkbench.GitHub;
+namespace CIWorkbench.GitHub;
 
 public enum CredentialKind { PersonalAccessToken, AppInstallation, UserToServer }
 
@@ -16,6 +16,8 @@ public interface IGitHubCredentialSource
     ValueTask<GitHubCredential?> GetAsync(CiScope scope, CancellationToken ct);
     /// <summary>Stable, non-secret identity used to partition caches (e.g. "pat" or "installation:123").</summary>
     string Identity { get; }
+    /// <summary>True when a credential is available at all (a cheap check for the UI; <see cref="GetAsync"/> remains authoritative). Hosts that do not override it are treated as configured.</summary>
+    bool IsConfigured => true;
 }
 
 public sealed class GitHubOptions
@@ -34,6 +36,7 @@ public sealed class GitHubOptions
 public sealed class PatCredentialSource(Microsoft.Extensions.Options.IOptions<GitHubOptions> options) : IGitHubCredentialSource
 {
     public string Identity => "pat";
+    public bool IsConfigured => options.Value.HasToken;
     public ValueTask<GitHubCredential?> GetAsync(CiScope scope, CancellationToken ct) =>
         ValueTask.FromResult(options.Value.HasToken ? new GitHubCredential(options.Value.Token!, CredentialKind.PersonalAccessToken) : null);
 }
