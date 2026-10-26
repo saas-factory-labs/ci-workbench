@@ -29,8 +29,8 @@ internal static class Css
     public static string ThemeScript => File.ReadAllText(Path.Combine(Root, "src", "CIWorkbench.Components", "wwwroot", "ciw-theme.js"));
     public static string AppShell => File.ReadAllText(Path.Combine(Root, "src", "CIWorkbench.Web", "Components", "App.razor"));
 
-    public const string DarkSelector = ":root, :root[data-theme=\"dark\"]";
-    public const string LightSelector = ":root[data-theme=\"light\"]";
+    public const string DarkSelector = ":root, :root[data-theme=\"dark\"], .ciw-root[data-theme=\"dark\"]";
+    public const string LightSelector = ":root[data-theme=\"light\"], .ciw-root[data-theme=\"light\"]";
 
     /// <summary>Body of the first rule whose selector is exactly <paramref name="selector"/>.</summary>
     public static string Block(string css, string selector)
@@ -78,6 +78,18 @@ internal static class Contrast
 
 public class DesignTokenTests
 {
+    [Test]
+    public async Task Component_stylesheet_does_not_restyle_the_host_document()
+    {
+        // An embedding host loads ciworkbench.css next to its own styles: every rule outside the palettes must hang off a ciw- class.
+        var css = Css.WithoutPalettes(Css.Components);
+        var headers = Regex.Matches(css, @"(?:^|[};])\s*([^{};@]+?)\s*\{").Select(m => m.Groups[1].Value);
+        var offenders = headers.SelectMany(h => h.Split(',')).Select(sel => sel.Trim())
+            .Where(sel => sel.Length > 0 && !Regex.IsMatch(sel, @"^(?:[a-z]+)?\.ciw-|^\d+%$|^(?:from|to)$"))
+            .Where(sel => !sel.Contains(".ciw-root")).Distinct().ToList();
+        await Assert.That(offenders.Count == 0).IsTrue().Because($"ciworkbench.css has selectors that can leak into a host: {string.Join(" | ", offenders)}");
+    }
+
     [Test]
     public async Task Component_stylesheet_has_no_colour_literals_outside_the_two_palettes()
     {

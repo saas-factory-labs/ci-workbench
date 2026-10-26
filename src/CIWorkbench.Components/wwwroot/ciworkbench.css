@@ -2,7 +2,7 @@
   CIWorkbench.Components — design system 2.0 (theming contract).
 
   Layers
-    1. Palette tokens (colour, shadow) live on :root and are selected by html[data-theme="dark" | "light"].
+    1. Palette tokens (colour, shadow) live on :root and are selected by html[data-theme="dark" | "light"]; an embedding host can instead set data-theme on its own .ciw-root container.
        The attribute is resolved before first paint by ciw-theme.js (Light / Dark / System, stored as ciw:theme).
        Dark is the unattributed default so a host that never loads the script still renders.
     2. Layout, type, density and motion tokens live on .ciw-root (never :root/body); a host overrides any --ciw-* token by scoping its own rule.
@@ -19,7 +19,7 @@
 }
 
 /* ===== palette: dark (charcoal + CIWorkbench blue) ===== */
-:root, :root[data-theme="dark"] {
+:root, :root[data-theme="dark"], .ciw-root[data-theme="dark"] {
   color-scheme: dark;
   /* surfaces */
   --ciw-bg: #0e1218;                       /* page */
@@ -72,7 +72,7 @@
 }
 
 /* ===== palette: light (cool neutral, crisp lines, realistic elevation; designed, not inverted) ===== */
-:root[data-theme="light"] {
+:root[data-theme="light"], .ciw-root[data-theme="light"] {
   color-scheme: light;
   --ciw-bg: #f7f9fc;
   --ciw-topbar: #ffffff;
@@ -207,7 +207,6 @@
   --ciw-col-status: 112px;
   --ciw-col-ago: 108px;
 }
-html { background: var(--ciw-bg); }
 .ciw-root *, .ciw-root *::before, .ciw-root *::after { box-sizing: border-box; }
 .ciw-root button, .ciw-root input, .ciw-root select, .ciw-root textarea { font: inherit; color: inherit; }
 .ciw-root :focus-visible { outline: 2px solid var(--ciw-focus-ring); outline-offset: 2px; border-radius: 4px; }
@@ -341,8 +340,8 @@ html { background: var(--ciw-bg); }
 .ciw-fchip .n { font-variant-numeric: tabular-nums; color: var(--ciw-muted); }
 .ciw-fchip.on .n { color: var(--ciw-fg); }
 .ciw-fchip .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
-.dot.red { background: var(--ciw-failure); } .dot.blue { background: var(--ciw-accent); } .dot.green { background: var(--ciw-success); }
-.dot.red.hollow { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ciw-failure); }
+.ciw-root .dot.red { background: var(--ciw-failure); } .ciw-root .dot.blue { background: var(--ciw-accent); } .ciw-root .dot.green { background: var(--ciw-success); }
+.ciw-root .dot.red.hollow { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ciw-failure); }
 .ciw-toolbar-actions { margin-left: auto; display: inline-flex; gap: 8px; }
 .ciw-scope { margin: -6px 0 var(--ciw-space-4); font-size: var(--ciw-fs-sm); color: var(--ciw-muted); }
 
@@ -776,9 +775,9 @@ a.ciw-sdot:hover { transform: scale(1.25); }
 @media (pointer: coarse) { a.ciw-sdot { padding: 15px 6px; } a.ciw-sdot.fail::before { inset: 15px 6px; } }
 
 /* hover / focus tooltip: the run, its result and its age (also available as the link's accessible name) */
-[data-tip] { position: relative; }
-[data-tip]::after { content: attr(data-tip); display: none; position: absolute; z-index: 30; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); white-space: nowrap; pointer-events: none; padding: 4px 9px; border-radius: 7px; font: var(--ciw-fw-medium) var(--ciw-fs-sm)/1.4 var(--ciw-font); letter-spacing: 0; color: var(--ciw-text-primary); background: var(--ciw-surface-raised); box-shadow: var(--ciw-shadow-md), inset 0 0 0 1px var(--ciw-border-strong); }
-[data-tip]:hover::after, [data-tip]:focus-visible::after { display: block; animation: ciw-tip var(--ciw-t) var(--ciw-ease); }
+.ciw-root [data-tip] { position: relative; }
+.ciw-root [data-tip]::after { content: attr(data-tip); display: none; position: absolute; z-index: 30; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); white-space: nowrap; pointer-events: none; padding: 4px 9px; border-radius: 7px; font: var(--ciw-fw-medium) var(--ciw-fs-sm)/1.4 var(--ciw-font); letter-spacing: 0; color: var(--ciw-text-primary); background: var(--ciw-surface-raised); box-shadow: var(--ciw-shadow-md), inset 0 0 0 1px var(--ciw-border-strong); }
+.ciw-root [data-tip]:hover::after, .ciw-root [data-tip]:focus-visible::after { display: block; animation: ciw-tip var(--ciw-t) var(--ciw-ease); }
 @keyframes ciw-tip { from { opacity: 0; } }
 .ciw-strip [data-tip]:first-child::after, .ciw-timeline [data-tip]:first-child::after { left: 0; transform: none; }
 .ciw-strip [data-tip]:last-child::after, .ciw-timeline [data-tip]:last-child::after { left: auto; right: 0; transform: none; }
@@ -850,10 +849,165 @@ a.ciw-sdot:hover { transform: scale(1.25); }
   .ciw-diag-title { font-size: 20px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  [data-tip]::after, .ciw-sdot { transition: none !important; }
+  .ciw-root [data-tip]::after, .ciw-sdot { transition: none !important; }
 }
 
 /* WCAG 2.2 target size: stand-alone links are at least 24 CSS px tall (inline links inside a sentence are exempt) */
-.ciw-attn-link, .ciw-attn-list > a, [data-action="all-series"] { display: inline-block; padding-block: 3px; }
+.ciw-attn-link, .ciw-attn-list > a, .ciw-root [data-action="all-series"] { display: inline-block; padding-block: 3px; }
 .ciw-hint a, .ciw-series-body a { padding-block: 3px; display: inline-block; }
-@media (pointer: coarse) { .ciw-attn-link, [data-action="all-series"] { padding-block: 10px; } }
+@media (pointer: coarse) { .ciw-attn-link, .ciw-root [data-action="all-series"] { padding-block: 10px; } }
+
+/* ===== workspace pages: Overview, repository, Runner Usage (moved from the standalone host so embedding hosts get them; scoped to .ciw-root) ===== */
+.ciw-root .page-title { font-size: 1.6rem; margin: 0 0 14px; font-weight: 600; letter-spacing: -.015em; }
+.ciw-root .section-title { font-size: 1.05rem; margin: 26px 0 12px; font-weight: 600; }
+.ciw-root .statusline { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; padding: 12px 16px; background: var(--ciw-surface); border-radius: 10px; box-shadow: var(--ciw-card-shadow); }
+.ciw-root .disc { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ciw-root .disc progress { width: 160px; height: 6px; accent-color: var(--ciw-accent); }
+.ciw-root .disc .bad { color: var(--ciw-failure); }
+.ciw-root .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; }
+.ciw-root .pill.demo { background: var(--ciw-warn-soft); color: var(--ciw-warning-text); }
+.ciw-root .pill.ok { background: var(--ciw-success-soft); color: var(--ciw-success); }
+
+
+/* ---- Overview: global CI triage. Same surfaces, radii and chips as the workspace; the ov- classes only add layout. ---- */
+.ciw-root .ov-scope { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; color: var(--ciw-muted); font-size: var(--ciw-fs-sm); }
+.ciw-root .ov-scope select, .ciw-root .ov-select select { background: var(--ciw-surface-2); color: var(--ciw-fg); border: 1px solid var(--ciw-border-control); border-radius: 8px; padding: 5px 8px; font: inherit; max-width: 100%; }
+.ciw-root .ov-onboard { margin-top: 14px; }
+.ciw-root .ov-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--ciw-kpi-gap, 12px); margin: 16px 0 12px; }
+.ciw-root .ov-card { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: var(--ciw-card-pad, 14px) 16px; border: 0; border-radius: var(--ciw-radius); background: var(--ciw-surface); color: var(--ciw-fg); cursor: pointer; font: inherit; box-shadow: var(--ciw-card-shadow); min-width: 0; transition: background var(--ciw-t) var(--ciw-ease), box-shadow var(--ciw-t) var(--ciw-ease); }
+.ciw-root .ov-card:hover { background: var(--ciw-surface-2); box-shadow: inset 0 0 0 1px var(--ciw-border-strong); }
+.ciw-root .ov-card.on { box-shadow: inset 0 0 0 1px var(--ciw-accent); background: var(--ciw-accent-soft); }
+.ciw-root .ov-card-label { font-size: var(--ciw-fs-sm); font-weight: 500; color: var(--ciw-muted); }
+.ciw-root .ov-card-value { font-size: 28px; font-weight: 600; letter-spacing: -.02em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.ciw-root .ov-card.bad .ov-card-value { color: var(--ciw-failure); }
+.ciw-root .ov-card-sub { font-size: var(--ciw-fs-sm); color: var(--ciw-muted); overflow-wrap: anywhere; }
+.ciw-root .ov-scan { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: var(--ciw-fs-sm); color: var(--ciw-muted); margin-bottom: 14px; }
+.ciw-root .ov-scan progress { width: 90px; height: 5px; margin-right: 8px; vertical-align: middle; accent-color: var(--ciw-accent); }
+.ciw-root .ov-scan-note { margin-left: auto; }
+.ciw-root .ov-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px 18px; flex-wrap: wrap; }
+.ciw-root .ov-selects { display: inline-flex; gap: 12px; flex-wrap: wrap; }
+.ciw-root .ov-select { display: inline-flex; align-items: center; gap: 8px; font-size: var(--ciw-fs-sm); color: var(--ciw-muted); }
+.ciw-root .ov-count { font-size: var(--ciw-fs-sm); font-weight: 400; margin-left: 6px; }
+.ciw-root .ov-list { display: flex; flex-direction: column; }
+.ciw-root .ov-row { display: grid; grid-template-columns: minmax(200px, 1.3fr) minmax(0, 1.6fr) minmax(150px, auto) 110px 100px; gap: 6px 16px; align-items: center; padding: 10px 14px; min-width: 0; }
+.ciw-root .ov-row.ov-head { font-size: var(--ciw-fs-label); text-transform: uppercase; letter-spacing: .04em; color: var(--ciw-muted); padding-block: 6px; border-bottom: 1px solid var(--ciw-border); }
+.ciw-root .ov-item { border-bottom: 1px solid var(--ciw-border); }
+.ciw-root .ov-item:hover { background: var(--ciw-surface); }
+.ciw-root .ov-item.open { background: var(--ciw-surface); border-radius: var(--ciw-radius); box-shadow: inset 2px 0 0 var(--ciw-failure); }
+.ciw-root .ov-item[data-health="recovered"].open, .ciw-root .ov-item[data-health="healthy"].open, .ciw-root .ov-item[data-health="unknown"].open { box-shadow: inset 2px 0 0 var(--ciw-border-strong); }
+.ciw-root .ov-toggle { display: flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; }
+.ciw-root .ov-name { display: flex; flex-direction: column; min-width: 0; }
+.ciw-root .ov-name strong { font-weight: 500; overflow-wrap: anywhere; }
+.ciw-root .ov-name small { font-size: var(--ciw-fs-sm); overflow-wrap: anywhere; }
+.ciw-root .ov-summary { display: flex; flex-direction: column; min-width: 0; }
+.ciw-root .ov-summary .clamp, .ciw-root .ov-timeline .clamp { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ciw-root .ov-meta { display: inline-flex; align-items: center; gap: 5px; font-size: var(--ciw-fs-sm); }
+.ciw-root .ov-status { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ciw-root .ov-tag { font-style: normal; font-size: var(--ciw-fs-label); padding: 1px 7px; border-radius: 5px; background: var(--ciw-neutral-soft); color: var(--ciw-muted); }
+.ciw-root .ov-tag.bad { background: var(--ciw-failure-soft); color: var(--ciw-failure); }
+.ciw-root .ov-tag.run { background: var(--ciw-accent-soft); color: var(--ciw-brand-text); }
+.ciw-root .ov-when, .ciw-root .ov-count-cell, .ciw-root .ov-rate { font-size: var(--ciw-fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ciw-root .ov-detail { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px 24px; padding: 4px 14px 16px 38px; }
+.ciw-root .ov-detail-main { min-width: 0; }
+.ciw-root .ov-step { margin: 0 0 8px; }
+.ciw-root .ov-step .ciw-muted { margin-right: 8px; }
+.ciw-root .ov-sub { font-size: var(--ciw-fs-sm); font-weight: 500; color: var(--ciw-muted); margin: 8px 0 6px; }
+.ciw-root .ov-timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: var(--ciw-fs-sm); }
+.ciw-root .ov-timeline li { display: flex; gap: 10px; align-items: baseline; min-width: 0; flex-wrap: wrap; }
+.ciw-root .ov-links { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+.ciw-root .ov-split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 8px 28px; align-items: start; }
+.ciw-root .ov-repo-row, .ciw-root .ov-act { display: grid; align-items: center; gap: 4px 14px; padding: 9px 14px; border-bottom: 1px solid var(--ciw-border); color: var(--ciw-fg); text-decoration: none; min-width: 0; }
+.ciw-root .ov-repo-row { grid-template-columns: minmax(0, 1.4fr) minmax(110px, auto) 56px 90px; }
+.ciw-root .ov-act { grid-template-columns: auto minmax(0, 1fr) auto; }
+.ciw-root .ov-repo-row:hover, .ciw-root .ov-act:hover { background: var(--ciw-surface); }
+.ciw-root .ov-rate { text-align: right; }
+
+
+/* ---- Runner Insights: reuses the Overview card language; only layout and the status pills are new ---- */
+.ciw-root .pill.ver { background: var(--ciw-success-soft); color: var(--ciw-success); }
+.ciw-root .pill.est { background: var(--ciw-neutral-soft); color: var(--ciw-muted); }
+.ciw-root .pill.na { background: var(--ciw-neutral-soft); color: var(--ciw-muted); }
+.ciw-root .pill.warn { background: var(--ciw-warn-soft); color: var(--ciw-warning-text); }
+.ciw-root .pill.bad { background: var(--ciw-failure-soft); color: var(--ciw-failure); }
+.ciw-root .pill { white-space: nowrap; }
+.ciw-root .ru-meta { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; font-size: var(--ciw-fs-sm); margin-bottom: 8px; }
+.ciw-root .ru-actions { margin-left: auto; display: inline-flex; gap: 8px; align-items: center; }
+.ciw-root .ru-meta progress, .ciw-root .ru-card progress, .ciw-root .ru-collect { accent-color: var(--ciw-accent); }
+.ciw-root .ru-meta progress { width: 90px; height: 6px; }
+.ciw-root .ru-collect { display: block; width: 100%; height: 4px; margin-bottom: 12px; }
+.ciw-root .ru-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); gap: 12px; }
+.ciw-root .ru-card { display: flex; flex-direction: column; gap: 8px; padding: var(--ciw-card-pad, 14px) 16px; border-radius: var(--ciw-radius); background: var(--ciw-surface); box-shadow: var(--ciw-card-shadow); min-width: 0; }
+.ciw-root .ru-card.wide { grid-column: span 2; }
+.ciw-root .ru-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.ciw-root .ru-pills { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.ciw-root .ru-pool { display: flex; flex-direction: column; gap: 6px; }
+.ciw-root .ru-pool + .ru-pool { padding-top: 8px; border-top: 1px solid var(--ciw-border); }
+.ciw-root .ru-pool-name { font-size: var(--ciw-fs-sm); font-weight: 500; }
+.ciw-root .ru-cols { display: grid; gap: 10px; }
+.ciw-root .ru-cols.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ciw-root .ru-block { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ciw-root .ru-label { font-size: var(--ciw-fs-label); text-transform: uppercase; letter-spacing: .04em; color: var(--ciw-muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.ciw-root .ru-value { font-size: 22px; font-weight: 600; letter-spacing: -.02em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.ciw-root .ru-value small { font-size: var(--ciw-fs-sm); font-weight: 400; color: var(--ciw-muted); letter-spacing: 0; }
+.ciw-root .ru-value.muted { color: var(--ciw-muted); }
+.ciw-root .ru-sub, .ciw-root .ru-fine { font-size: var(--ciw-fs-sm); overflow-wrap: anywhere; }
+.ciw-root .ru-fine { margin: 2px 0; }
+.ciw-root .ru-card progress { width: 100%; height: 6px; display: block; margin-bottom: 4px; }
+.ciw-root .ru-card progress.warn { accent-color: var(--ciw-warn); }
+.ciw-root .ru-card progress.bad { accent-color: var(--ciw-failure); }
+.ciw-root .ru-allow { font-size: var(--ciw-fs-sm); font-variant-numeric: tabular-nums; }
+.ciw-root .ru-est { font-style: normal; font-size: var(--ciw-fs-label); color: var(--ciw-muted); margin-left: 4px; }
+.ciw-root .ru-foot { display: flex; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; margin-top: auto; font-size: var(--ciw-fs-sm); }
+.ciw-root .ru-types, .ciw-root .ru-repos { display: inline-flex; gap: 4px 8px; flex-wrap: wrap; min-width: 0; }
+.ciw-root .ru-types code { overflow-wrap: anywhere; }
+.ciw-root .ru-morepools > summary { cursor: pointer; font-size: var(--ciw-fs-sm); color: var(--ciw-muted); padding: 6px 0; }
+.ciw-root .ru-morepools[open] > summary { margin-bottom: 6px; }
+.ciw-root .ru-more { margin-top: 10px; font-size: var(--ciw-fs-sm); }
+.ciw-root .rr-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); gap: 12px; margin-bottom: 8px; }
+.ciw-root .rr-group { border-radius: var(--ciw-radius); background: var(--ciw-surface); box-shadow: var(--ciw-card-shadow); padding: 10px 14px; min-width: 0; }
+.ciw-root .rr-ghead { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; padding-bottom: 6px; border-bottom: 1px solid var(--ciw-border); }
+.ciw-root .rr-gsum { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ciw-root .rr-row { display: grid; grid-template-columns: minmax(0, 1.6fr) 44px minmax(0, 1.4fr) auto; gap: 4px 10px; align-items: baseline; padding: 6px 0; font-size: var(--ciw-fs-sm); }
+.ciw-root .rr-row code { overflow-wrap: anywhere; }
+.ciw-root .rr-wrow { display: grid; align-items: center; gap: 4px 16px; padding: 9px 14px; border-bottom: 1px solid var(--ciw-border); min-width: 0; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.6fr) minmax(0, 1.6fr) minmax(130px, 1fr); }
+.ciw-root .rr-cfg { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.ciw-root .rr-chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 1px 8px; border-radius: 6px; background: var(--ciw-neutral-soft); color: var(--ciw-fg); font-size: var(--ciw-fs-sm); text-decoration: none; margin: 1px 4px 1px 0; overflow-wrap: anywhere; }
+.ciw-root .rr-chip em { font-style: normal; font-size: var(--ciw-fs-label); color: var(--ciw-muted); }
+.ciw-root .rr-chip.fallback { background: var(--ciw-warn-soft); }
+.ciw-root .rr-chip.unknown { background: var(--ciw-failure-soft); }
+.ciw-root .rr-chip.actual { background: var(--ciw-accent-soft); }
+@media (max-width: 1100px) {
+.ciw-root .ru-card.wide { grid-column: auto; }
+.ciw-root .ru-cols.two { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+.ciw-root .rr-wrow, .ciw-root .ri-quota { grid-template-columns: minmax(0, 1fr); }
+.ciw-root .rr-wrow.ov-head { display: none; }
+.ciw-root .rr-wrow > [data-label]::before { content: attr(data-label); display: block; font-size: var(--ciw-fs-label); text-transform: uppercase; letter-spacing: .04em; color: var(--ciw-muted); }
+.ciw-root .ru-actions { margin-left: 0; width: 100%; }
+}
+@media (max-width: 1100px) {
+.ciw-root .ov-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ciw-root .ov-split { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+.ciw-root .ov-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.ciw-root .ov-card { padding: 12px; }
+.ciw-root .ov-card-value { font-size: 24px; }
+.ciw-root .ov-scope { margin-left: 0; width: 100%; }
+.ciw-root .ov-scan-note { margin-left: 0; width: 100%; }
+.ciw-root .ov-selects, .ciw-root .ov-select, .ciw-root .ov-select select { width: 100%; }
+.ciw-root .ov-select { justify-content: space-between; }
+.ciw-root .ov-row.ov-head { display: none; }
+.ciw-root .ov-row { grid-template-columns: minmax(0, 1fr); padding: 12px 10px; }
+.ciw-root .ov-row > [data-label]::before { content: attr(data-label); display: block; font-size: var(--ciw-fs-label); text-transform: uppercase; letter-spacing: .04em; color: var(--ciw-muted); margin-bottom: 2px; }
+.ciw-root .ov-toggle { min-height: 44px; }
+.ciw-root .ov-detail { grid-template-columns: minmax(0, 1fr); padding: 4px 10px 14px; }
+.ciw-root .ov-links { flex-direction: row; flex-wrap: wrap; }
+.ciw-root .ov-repo-row { grid-template-columns: minmax(0, 1fr) auto; }
+.ciw-root .ov-repo-row .ov-rate, .ciw-root .ov-repo-row .ov-when { text-align: left; }
+.ciw-root .ov-act { grid-template-columns: minmax(0, 1fr) auto; }
+.ciw-root .ov-act > :first-child { grid-column: 1 / -1; justify-self: start; }
+}
+.ciw-root .ov-repo-row, .ciw-root .ov-repo-row:visited, .ciw-root .ov-act, .ciw-root .ov-act:visited { color: var(--ciw-fg); }
+.ciw-root .ov-repo-row strong, .ciw-root .ov-act strong { color: var(--ciw-fg); font-weight: 500; }
